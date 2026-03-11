@@ -1,0 +1,1701 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FakeDetect — Защита бренда от подделок</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Geologica:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red:   #ff2d55;
+    --green: #34c759;
+    --amber: #ff9f0a;
+    --bg:    #f5f4f0;
+    --ink:   #0d0d0d;
+    --muted: #888;
+    --card:  #ffffff;
+    --border:#e0ddd8;
+  }
+
+  body {
+    font-family: 'Geologica', sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    position: sticky; top: 0; z-index: 99;
+  }
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 2px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); display: inline-block; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+  .badge-live {
+    font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+    background: var(--red); color: #fff;
+    padding: 3px 8px; border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    padding: 64px 40px 48px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .hero-tag {
+    font-size: 11px; font-weight: 600; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .hero h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(48px, 7vw, 96px);
+    line-height: .95;
+    letter-spacing: 1px;
+    margin-bottom: 20px;
+  }
+  .hero h1 span { color: var(--red); }
+  .hero-desc {
+    font-size: 16px; color: var(--muted); font-weight: 300;
+    max-width: 520px; line-height: 1.6; margin-bottom: 36px;
+  }
+
+  /* ── STATS ROW ── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 40px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 28px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s;
+  }
+  .stat-card:hover { transform: translateY(-3px); }
+  .stat-card::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+  }
+  .stat-card.danger::after  { background: var(--red); }
+  .stat-card.success::after { background: var(--green); }
+  .stat-card.warning::after { background: var(--amber); }
+  .stat-card.neutral::after { background: #007aff; }
+  .stat-label { font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .stat-value { font-family: 'Bebas Neue', sans-serif; font-size: 52px; line-height: 1; letter-spacing: 1px; }
+  .stat-value.red    { color: var(--red); }
+  .stat-value.green  { color: var(--green); }
+  .stat-value.amber  { color: var(--amber); }
+  .stat-value.blue   { color: #007aff; }
+  .stat-sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* ── MAIN GRID ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 40px;
+  }
+
+  /* ── VERDICT CARD ── */
+  .verdict-card {
+    background: var(--ink);
+    color: #fff;
+    border-radius: 20px;
+    padding: 36px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    min-height: 320px;
+    position: relative;
+    overflow: hidden;
+  }
+  .verdict-card::before {
+    content: '';
+    position: absolute; top: -80px; right: -80px;
+    width: 240px; height: 240px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--red)30, transparent 70%);
+    pointer-events: none;
+  }
+  .verdict-top { font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: #666; }
+  .verdict-main {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 72px; line-height: 1;
+    letter-spacing: 2px;
+  }
+  .verdict-main.fake   { color: var(--red); }
+  .verdict-main.real   { color: var(--green); }
+  .verdict-main.sus    { color: var(--amber); }
+
+  .confidence-row { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+  .conf-bar { flex: 1; height: 6px; background: #222; border-radius: 99px; overflow: hidden; }
+  .conf-fill { height: 100%; border-radius: 99px; transition: width 1.2s cubic-bezier(.16,1,.3,1); }
+  .conf-fill.fake  { background: var(--red); }
+  .conf-fill.real  { background: var(--green); }
+  .conf-fill.sus   { background: var(--amber); }
+  .conf-pct { font-family: 'Bebas Neue', sans-serif; font-size: 28px; letter-spacing: 1px; }
+
+  .verdict-summary { font-size: 13px; color: #aaa; line-height: 1.6; margin-top: 16px; }
+
+  /* ── INDICATORS ── */
+  .indicators-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+  }
+  .indicators-card h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 1px;
+    margin-bottom: 20px;
+  }
+  .indicator-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    animation: fadeUp .4s ease both;
+  }
+  .indicator-row:last-child { border-bottom: none; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+
+  .ind-icon { font-size: 18px; flex-shrink: 0; width: 28px; text-align: center; }
+  .ind-name { font-size: 13px; font-weight: 600; flex: 1; }
+  .ind-detail { font-size: 12px; color: var(--muted); flex: 2; }
+  .ind-score {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px; width: 36px; text-align: right;
+  }
+  .score-ok   { color: var(--green); }
+  .score-warn { color: var(--amber); }
+  .score-fail { color: var(--red); }
+
+  /* ── IMAGES ROW ── */
+  .images-section {
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 40px;
+  }
+  .images-section h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 1px; margin-bottom: 16px;
+  }
+  .images-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .img-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .img-label {
+    padding: 12px 20px;
+    font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .img-label .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-green { background: var(--green); }
+  .dot-red   { background: var(--red); }
+  .img-placeholder {
+    height: 200px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 48px;
+    background: var(--bg);
+    color: var(--border);
+  }
+
+  /* ── PRICE SIGNAL ── */
+  .price-section {
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 40px;
+  }
+  .price-card {
+    background: #fff8f0;
+    border: 1px solid #ffe0b0;
+    border-radius: 16px;
+    padding: 24px 32px;
+    display: flex; align-items: center; gap: 24px;
+  }
+  .price-icon { font-size: 36px; }
+  .price-text h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .price-text p  { font-size: 13px; color: var(--muted); }
+  .price-badge {
+    margin-left: auto;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 32px; color: var(--amber);
+  }
+
+  /* ── HISTORY TABLE ── */
+  .history-section {
+    max-width: 1200px;
+    margin: 0 auto 64px;
+    padding: 0 40px;
+  }
+  .history-section h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 1px; margin-bottom: 16px;
+  }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 16px; overflow: hidden; border: 1px solid var(--border); }
+  th {
+    text-align: left; padding: 12px 20px;
+    font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  td { padding: 14px 20px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafaf8; }
+
+  .pill {
+    display: inline-block;
+    padding: 3px 10px; border-radius: 99px;
+    font-size: 11px; font-weight: 600;
+  }
+  .pill-fake    { background: #fff0f3; color: var(--red); }
+  .pill-real    { background: #f0fff4; color: var(--green); }
+  .pill-sus     { background: #fff8e6; color: var(--amber); }
+
+  /* ── CTA ── */
+  .cta-section {
+    background: var(--ink);
+    color: #fff;
+    padding: 64px 40px;
+    text-align: center;
+  }
+  .cta-section h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(36px, 5vw, 64px);
+    letter-spacing: 2px; margin-bottom: 12px;
+  }
+  .cta-section p { color: #666; font-size: 15px; margin-bottom: 32px; }
+  .cta-btn {
+    display: inline-block;
+    background: var(--red); color: #fff;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 18px; letter-spacing: 2px;
+    padding: 16px 48px; border-radius: 12px;
+    text-decoration: none;
+    transition: opacity .2s, transform .2s;
+  }
+  .cta-btn:hover { opacity: .85; transform: translateY(-2px); }
+
+  /* ── UPLOAD DEMO AREA ── */
+  .upload-section {
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 40px;
+  }
+  .upload-section h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px; letter-spacing: 1px; margin-bottom: 16px;
+  }
+  .upload-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; align-items: end; }
+  .upload-box {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    background: var(--card);
+    position: relative; overflow: hidden;
+  }
+  .upload-box:hover { border-color: var(--ink); background: #fafaf8; }
+  .upload-box input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .upload-icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-title { font-weight: 600; font-size: 14px; }
+  .upload-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .upload-preview { width: 100%; height: 140px; object-fit: cover; border-radius: 10px; margin-top: 12px; display: none; }
+
+  /* ── INPUT MODE TABS ── */
+  .input-mode-tabs {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .mode-tab {
+    flex: 1;
+    padding: 16px;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    background: var(--card);
+  }
+  .mode-tab.active {
+    border-color: var(--ink);
+    background: var(--ink);
+    color: #fff;
+  }
+  .mode-tab input { display: none; }
+  .mode-label {
+    display: block;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px;
+  }
+  .mode-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* ── URL INPUT ── */
+  .url-input-group {
+    display: none;
+    margin-bottom: 16px;
+  }
+  .url-input-group.active {
+    display: block;
+  }
+  .url-input-wrapper {
+    position: relative;
+  }
+  .url-input {
+    width: 100%;
+    padding: 16px;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    font-family: 'Geologica', sans-serif;
+    font-size: 14px;
+  }
+  .url-input:focus {
+    border-color: var(--ink);
+    outline: none;
+  }
+  .url-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 8px 16px;
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .url-btn:hover { background: #222; }
+  .url-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+  .analyze-btn {
+    background: var(--ink); color: #fff;
+    border: none; border-radius: 12px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px; letter-spacing: 2px;
+    padding: 0 36px; height: 100%;
+    min-height: 80px;
+    cursor: pointer;
+    transition: background .2s, transform .2s;
+    white-space: nowrap;
+  }
+  .analyze-btn:hover { background: #222; transform: translateY(-2px); }
+  .analyze-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+
+  /* ── LOADING ── */
+  .loading-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(13,13,13,.85);
+    z-index: 999;
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 20px;
+    color: #fff;
+  }
+  .loading-overlay.show { display: flex; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 3px solid #333;
+    border-top-color: var(--red);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 3px; }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: 1fr 1fr; }
+    .main-grid, .images-grid, .upload-grid, .batch-grid { grid-template-columns: 1fr; }
+    header { padding: 16px 20px; }
+    .hero, .stats, .main-grid, .images-section, .price-section, .history-section, .upload-section, .db-section { padding-left: 20px; padding-right: 20px; }
+  }
+
+  /* Database Sections (History + Whitelist) */
+  .db-section {
+    max-width: 1200px;
+    margin: 0 auto 64px;
+    padding: 0 40px;
+  }
+  .db-section h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+  .db-table-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .db-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .db-table th {
+    text-align: left;
+    padding: 12px 20px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .db-table td {
+    padding: 12px 20px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  .db-table tr:last-child td {
+    border-bottom: none;
+  }
+  .db-table tr:hover td {
+    background: #fafaf8;
+  }
+  .db-empty {
+    padding: 32px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .whitelist-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 12px;
+    align-items: end;
+    margin-bottom: 24px;
+  }
+  .whitelist-form input, .whitelist-form select {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Geologica', sans-serif;
+  }
+  .whitelist-form button {
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    letter-spacing: 2px;
+    cursor: pointer;
+  }
+  .whitelist-form button:hover {
+    background: #222;
+  }
+  .whitelist-delete-btn {
+    background: var(--red);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .whitelist-delete-btn:hover {
+    background: #d63d5a;
+  }
+  .pill-fake { background: #fff0f3; color: var(--red); }
+  .pill-real { background: #f0fff4; color: var(--green); }
+  .pill-sus { background: #fff8e6; color: var(--amber); }
+  .text-red { color: var(--red); }
+  .text-green { color: var(--green); }
+  .text-amber { color: var(--amber); }
+  .text-blue { color: #007aff; }
+  .text-muted { color: var(--muted); }
+  .text-ink { color: var(--ink); }
+  .text-white { color: #fff; }
+
+
+  /* Batch Section */
+  .batch-section {
+    max-width: 1200px;
+    margin: 0 auto 64px;
+    padding: 0 40px;
+  }
+  .batch-section h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+  }
+  .batch-container {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+  }
+  .batch-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 16px;
+    align-items: end;
+  }
+  .batch-upload label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .batch-upload input[type="file"] {
+    width: 100%;
+    padding: 12px;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Geologica', sans-serif;
+  }
+  .batch-text label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .batch-text input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Geologica', sans-serif;
+  }
+  .batch-btn {
+    background: var(--ink);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px;
+    letter-spacing: 2px;
+    padding: 0 24px;
+    height: 100%;
+    min-height: 48px;
+    cursor: pointer;
+  }
+  .batch-btn:hover { background: #222; }
+  .batch-btn:disabled { background: #ccc; cursor: not-allowed; }
+  .batch-progress-wrap {
+    margin-top: 24px;
+    display: none;
+  }
+  .batch-progress-wrap.active {
+    display: block;
+  }
+  .progress-bar-wrap {
+    background: var(--bg);
+    border-radius: 99px;
+    height: 8px;
+    width: 100%;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00ff88, #00d4ff);
+    border-radius: 99px;
+    transition: width 0.3s ease;
+  }
+  .progress-text {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    text-align: right;
+  }
+  .progress-status {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  .batch-download {
+    margin-top: 24px;
+    text-align: center;
+    display: none;
+  }
+  .batch-download.active {
+    display: block;
+  }
+
+  /* ─── DEEP ANALYSIS RESULTS ─── */
+  .deep-analysis-section {
+    max-width: 1200px;
+    margin: 0 auto 48px;
+    padding: 0 40px;
+  }
+  .analysis-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 32px;
+    margin-bottom: 24px;
+  }
+  .analysis-card h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px; letter-spacing: 1px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .badge {
+    padding: 4px 12px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge-fake    { background: #fff0f3; color: var(--red); }
+  .badge-real    { background: #f0fff4; color: var(--green); }
+  .badge-sus     { background: #fff8e6; color: var(--amber); }
+  .badge-red     { background: #fff0f3; color: var(--red); }
+
+  .analysis-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .analysis-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+  }
+  .analysis-item img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 8px;
+  }
+  .analysis-item h4 {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .analysis-item p {
+    font-size: 11px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Анализируем…</div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" style="display:none;position:fixed;top:20px;right:20px;background:#333;color:#fff;padding:16px 24px;border-radius:12px;max-width:400px;z-index:1000"></div>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <span class="logo-dot"></span>
+    FAKEDETECT
+  </div>
+  <span class="badge-live">LIVE</span>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-tag">AI-система защиты бренда · Wildberries · Ozon · Яндекс Маркет</div>
+  <h1>СТОП<br><span>ПОДДЕЛКА</span></h1>
+  <p class="hero-desc">Автоматическое выявление контрафактных товаров на маркетплейсах с помощью компьютерного зрения. Загрузите два фото — получите ответ за 3 секунды.</p>
+</section>
+
+<!-- STATS -->
+<div class="stats" id="stats">
+  <div class="stat-card danger">
+    <div class="stat-label">Подделок выявлено</div>
+    <div class="stat-value red" id="cnt-fake">0</div>
+    <div class="stat-sub">за сессию</div>
+  </div>
+  <div class="stat-card success">
+    <div class="stat-label">Оригиналов подтверждено</div>
+    <div class="stat-value green" id="cnt-real">0</div>
+    <div class="stat-sub">за сессию</div>
+  </div>
+  <div class="stat-card warning">
+    <div class="stat-label">Под вопросом</div>
+    <div class="stat-value amber" id="cnt-sus">0</div>
+    <div class="stat-sub">требуют проверки</div>
+  </div>
+  <div class="stat-card neutral">
+    <div class="stat-label">Всего проверок</div>
+    <div class="stat-value blue" id="cnt-total">0</div>
+    <div class="stat-sub">товаров</div>
+  </div>
+</div>
+
+<!-- UPLOAD -->
+<section class="upload-section">
+  <h3>Новая проверка</h3>
+
+  <!-- Input mode tabs -->
+  <div class="input-mode-tabs">
+    <label class="mode-tab active" id="tab-upload">
+      <input type="radio" name="mode" value="upload" checked>
+      <span class="mode-label">📂 Загрузить фото</span>
+      <span class="mode-sub">Файлы с компьютера</span>
+    </label>
+    <label class="mode-tab" id="tab-url">
+      <input type="radio" name="mode" value="url">
+      <span class="mode-label">🔗 URL маркетплейса</span>
+      <span class="mode-sub">WB / Ozon / Яндекс</span>
+    </label>
+  </div>
+
+  <!-- URL input (hidden by default) -->
+  <div class="url-input-group" id="url-input-group">
+    <div class="url-input-wrapper">
+      <input type="url" id="url-input" class="url-input" placeholder="https://wildberries.ru/catalog/12345 или https://ozon.ru/product/...">
+      <button class="url-btn" id="parse-btn" disabled>Загрузить с маркетплейса</button>
+    </div>
+    <div id="parse-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+  </div>
+
+  <div class="upload-grid">
+    <div class="upload-box" id="box-orig">
+      <input type="file" accept="image/*" id="file-orig" onchange="previewImage(this,'prev-orig','box-orig')">
+      <div class="upload-icon">✅</div>
+      <div class="upload-title">Оригинальный товар</div>
+      <div class="upload-sub">Эталонное фото бренда</div>
+      <img class="upload-preview" id="prev-orig">
+    </div>
+    <div class="upload-box" id="box-sus">
+      <input type="file" accept="image/*" id="file-sus" onchange="previewImage(this,'prev-sus','box-sus')">
+      <div class="upload-icon">❓</div>
+      <div class="upload-title">Подозрительный товар</div>
+      <div class="upload-sub">Фото с маркетплейса</div>
+      <img class="upload-preview" id="prev-sus">
+    </div>
+    <button class="analyze-btn" id="analyze-btn" onclick="analyze()" disabled>
+      АНАЛИЗ<br>→
+    </button>
+    <button class="analyze-btn" id="analyze-deep-btn" onclick="analyzeDeep()" disabled style="background:#007aff; font-size:14px; letter-spacing:1px;">
+      ГЛУБОКИЙ АНАЛИЗ<br>→
+    </button>
+  </div>
+
+  <div style="display:flex; gap:12px; margin:12px 0; flex-wrap:wrap;">
+    <input id="brand-input" placeholder="Бренд (напр. Nike)" style="flex:1; min-width:150px; padding:8px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+    <select id="marketplace-input" style="flex:1; min-width:150px; padding:8px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+      <option value="">Маркетплейс</option>
+      <option value="WB">Wildberries</option>
+      <option value="Ozon">Ozon</option>
+      <option value="Яндекс Маркет">Яндекс Маркет</option>
+    </select>
+    <input id="price-orig-input" type="number" placeholder="Цена оригинала ₽" style="flex:1; min-width:130px; padding:8px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+    <input id="price-sus-input" type="number" placeholder="Цена с маркетплейса ₽" style="flex:1; min-width:130px; padding:8px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+  </div>
+</section>
+
+<!-- RESULT (hidden by default) -->
+<div id="result-section" style="display:none">
+
+  <!-- VERDICT + INDICATORS -->
+  <div class="main-grid">
+    <div class="verdict-card">
+      <div class="verdict-top">Результат анализа · Gemini Vision</div>
+      <div>
+        <div class="verdict-main" id="verdict-label">—</div>
+        <div class="confidence-row">
+          <div class="conf-bar"><div class="conf-fill" id="conf-fill" style="width:0%"></div></div>
+          <div class="conf-pct" id="conf-pct">0%</div>
+        </div>
+      </div>
+      <div class="verdict-summary" id="verdict-summary">—</div>
+    </div>
+
+    <div class="indicators-card">
+      <h3>Детальные признаки</h3>
+      <div id="indicators-list"></div>
+    </div>
+  </div>
+
+  <!-- PRICE SIGNAL -->
+  <div class="price-section" id="price-section" style="display:none">
+    <div class="price-card">
+      <div class="price-icon">💰</div>
+      <div class="price-text">
+        <h4 id="price-title">Ценовой сигнал</h4>
+        <p id="price-detail"></p>
+      </div>
+      <div class="price-badge" id="price-badge"></div>
+    </div>
+  </div>
+
+  <!-- DEEP ANALYSIS RESULTS -->
+  <div id="deep-analysis-section" style="display:none">
+    <h3 class="deep-analysis-section" style="margin:0">Результаты глубокого анализа</h3>
+
+    <!-- Red flags -->
+    <div id="red-flags-container" style="margin-bottom: 24px;"></div>
+
+    <!-- Final verdict -->
+    <div class="analysis-card">
+      <h3 id="deep-verdict-title">Вердикт: —</h3>
+      <p id="deep-summary" style="margin-top: 12px; color: var(--muted);"></p>
+    </div>
+
+    <!-- Card results -->
+    <div id="card-results-section" style="display:none">
+      <div class="analysis-card">
+        <h3>📷 Фото карточки товара</h3>
+        <div class="analysis-grid" id="card-images-grid"></div>
+      </div>
+    </div>
+
+    <!-- Review results -->
+    <div id="review-results-section" style="display:none">
+      <div class="analysis-card">
+        <h3>💬 Фото из отзывов</h3>
+        <div class="analysis-grid" id="review-images-grid"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- HISTORY TAB -->
+<section class="db-section" id="history-tab" style="display:none">
+  <h3>История проверок</h3>
+  <div class="db-table-container">
+    <table class="db-table">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Бренд</th>
+          <th>Маркетплейс</th>
+          <th>Вердикт</th>
+          <th>Уверенность</th>
+        </tr>
+      </thead>
+      <tbody id="db-history-body"></tbody>
+    </table>
+    <div id="db-history-empty" class="db-empty" style="display:none">
+      История пуста
+    </div>
+  </div>
+</section>
+
+<!-- WHITELIST TAB -->
+<section class="db-section" id="whitelist-tab" style="display:none">
+  <h3>Белые списки</h3>
+
+  <div class="db-table-container" style="margin-bottom: 24px;">
+    <div style="padding: 20px;">
+      <h4 style="font-size: 14px; font-weight: 600; margin-bottom: 12px;">Добавить продавца</h4>
+      <form class="whitelist-form" onsubmit="addWhitelistEntry(event)">
+        <div>
+          <label style="font-size: 11px; font-weight: 600; letter-spacing: 1px;">Бренд</label>
+          <input type="text" id="wl-brand" placeholder="Например: Nike" required>
+        </div>
+        <div>
+          <label style="font-size: 11px; font-weight: 600; letter-spacing: 1px;">Продавец</label>
+          <input type="text" id="wl-seller" placeholder="Имя магазина" required>
+        </div>
+        <div>
+          <label style="font-size: 11px; font-weight: 600; letter-spacing: 1px;">Маркетплейс</label>
+          <select id="wl-marketplace">
+            <option value="">Все</option>
+            <option value="WB">Wildberries</option>
+            <option value="Ozon">Ozon</option>
+            <option value="YANDEX">Яндекс Маркет</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 11px; font-weight: 600; letter-spacing: 1px;">Комментарий</label>
+          <input type="text" id="wl-note" placeholder="Опционально">
+        </div>
+        <button type="submit">Добавить</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="db-table-container">
+    <table class="db-table">
+      <thead>
+        <tr>
+          <th>Бренд</th>
+          <th>Продавец</th>
+          <th>Маркетплейс</th>
+          <th>Дата</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody id="db-whitelist-body"></tbody>
+    </table>
+    <div id="db-whitelist-empty" class="db-empty" style="display:none">
+      Белый список пуст
+    </div>
+  </div>
+</section>
+
+<!-- BATCH PROCESSING -->
+<section class="batch-section">
+  <h3>Пакетная проверка</h3>
+
+  <div class="batch-container">
+    <div class="batch-inputs">
+      <div class="batch-upload">
+        <label>Excel файл с товарами</label>
+        <input type="file" accept=".xlsx" id="batch-file">
+      </div>
+      <div class="batch-upload">
+        <label>Фото оригинала (эталон)</label>
+        <input type="file" accept="image/*" id="batch-reference">
+      </div>
+      <div class="batch-text">
+        <label>Бренд</label>
+        <input type="text" id="batch-brand" placeholder="Например: Nike Air Max">
+      </div>
+      <button class="analyze-btn batch-btn" onclick="runBatch()">ЗАПУСТИТЬ</button>
+    </div>
+
+    <div class="batch-progress" id="batch-progress" style="display:none">
+      <div class="progress-bar-wrap">
+        <div class="progress-fill" id="batch-progress-fill" style="width:0%"></div>
+      </div>
+      <div class="progress-text" id="batch-progress-text">0%</div>
+      <div class="progress-status" id="batch-progress-status">Инициализация...</div>
+    </div>
+
+    <div class="batch-download" id="batch-download" style="display:none">
+      <a href="#" id="batch-download-link" class="cta-btn" download>СКАЧАТЬ РЕЗУЛЬТАТЫ</a>
+    </div>
+  </div>
+</section>
+
+<!-- DATABASE TABS -->
+<section class="db-section">
+  <div style="display: flex; gap: 16px; margin-bottom: 24px;">
+    <button class="mode-tab active" id="tab-history" onclick="switchDbTab('history')">
+      <span class="mode-label">📜 История</span>
+    </button>
+    <button class="mode-tab" id="tab-whitelist" onclick="switchDbTab('whitelist')">
+      <span class="mode-label">🏷️ Белые списки</span>
+    </button>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <h2>ГОТОВЫ ЗАЩИТИТЬ СВОЙ БРЕНД?</h2>
+  <p>Прототип разработан за 1 день · Масштабируется до тысяч проверок в сутки</p>
+  <a href="https://github.com/Ilyat9/FakeDetect" class="cta-btn" target="_blank">СМОТРЕТЬ КОД →</a>
+</section>
+
+<script>
+  const API_URL = 'http://localhost:8000';
+  const state = { fake: 0, real: 0, sus: 0, total: 0, history: [], origBytes: null, susBytes: null, provider: 'Gemini' };
+
+  async function checkHealth() {
+    try {
+      const res = await fetch(`${API_URL}/health`);
+      if (res.ok) {
+        const data = await res.json();
+        state.provider = typeof data.provider === 'string' ? data.provider : 'Gemini';
+        console.log('Backend is ready:', state.provider.toUpperCase());
+      }
+    } catch (e) {
+      showToast('Не удалось подключиться к бэкенду. Убедитесь, что uvicorn запущен.', 'error');
+    }
+  }
+  checkHealth();
+
+  // Load stats from database
+  async function loadStats() {
+    try {
+      const res = await fetch(`${API_URL}/stats`);
+      const stats = await res.json();
+
+      // Update display with real data only
+      document.getElementById('cnt-fake').textContent = stats.fakes;
+      document.getElementById('cnt-real').textContent = stats.originals;
+      document.getElementById('cnt-sus').textContent = stats.suspicious;
+      document.getElementById('cnt-total').textContent = stats.total;
+    } catch (e) {
+      console.error('Failed to load stats:', e);
+    }
+  }
+
+  // Initialize stats display, then poll every 30 seconds
+  loadStats();
+  setInterval(loadStats, 30000);
+
+  // Database tabs
+  let currentDbTab = 'history';
+  async function switchDbTab(tab) {
+    currentDbTab = tab;
+
+    document.getElementById('tab-history').classList.toggle('active', tab === 'history');
+    document.getElementById('tab-whitelist').classList.toggle('active', tab === 'whitelist');
+
+    document.getElementById('history-tab').style.display = tab === 'history' ? 'block' : 'none';
+    document.getElementById('whitelist-tab').style.display = tab === 'whitelist' ? 'block' : 'none';
+
+    if (tab === 'history') {
+      loadHistory();
+    } else {
+      loadWhitelist();
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch(`${API_URL}/history?limit=20`);
+      const data = await res.json();
+
+      const tbody = document.getElementById('db-history-body');
+      const emptyDiv = document.getElementById('db-history-empty');
+
+      if (!data.checks || data.checks.length === 0) {
+        if (tbody) tbody.innerHTML = '';
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        return;
+      }
+
+      if (emptyDiv) emptyDiv.style.display = 'none';
+      if (tbody) tbody.innerHTML = data.checks.map(check => {
+        const verdictClass = check.verdict === 'ПОДДЕЛКА' ? 'text-red' :
+                            check.verdict === 'ОРИГИНАЛ' ? 'text-green' : 'text-amber';
+        const date = new Date(check.checked_at).toLocaleString('ru-RU');
+
+        return `
+          <tr>
+            <td style="font-size:12px;color:var(--muted)">${date}</td>
+            <td>${check.brand || '—'}</td>
+            <td>${check.marketplace || '—'}</td>
+            <td><span class="pill ${check.verdict === 'ПОДДЕЛКА' ? 'pill-fake' : check.verdict === 'ОРИГИНАЛ' ? 'pill-real' : 'pill-sus'}">${check.verdict}</span></td>
+            <td style="font-weight:600">${check.confidence}%</td>
+          </tr>
+        `;
+      }).join('');
+    } catch (e) {
+      console.error('Failed to load history:', e);
+      const errorTbody = document.getElementById('db-history-body');
+      if (errorTbody) errorTbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Ошибка загрузки</td></tr>';
+    }
+  }
+
+  async function loadWhitelist() {
+    try {
+      const res = await fetch(`${API_URL}/whitelist`);
+      const data = await res.json();
+
+      const tbody = document.getElementById('db-whitelist-body');
+      const emptyDiv = document.getElementById('db-whitelist-empty');
+
+      if (!data.entries || data.entries.length === 0) {
+        if (tbody) tbody.innerHTML = '';
+        if (emptyDiv) emptyDiv.style.display = 'block';
+        return;
+      }
+
+      if (emptyDiv) emptyDiv.style.display = 'none';
+      if (tbody) tbody.innerHTML = data.entries.map(entry => {
+        const date = new Date(entry.added_at).toLocaleString('ru-RU');
+
+        return `
+          <tr>
+            <td>${entry.brand}</td>
+            <td>${entry.seller_name}</td>
+            <td>${entry.marketplace || '—'}</td>
+            <td style="font-size:12px;color:var(--muted)">${date}</td>
+            <td>
+              <button class="whitelist-delete-btn" onclick="deleteWhitelistEntry(${entry.id})">Удалить</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    } catch (e) {
+      console.error('Failed to load whitelist:', e);
+      const errorTbody = document.getElementById('db-whitelist-body');
+      if (errorTbody) errorTbody.innerHTML = '<tr><td colspan="5" style="text-align:center">Ошибка загрузки</td></tr>';
+    }
+  }
+
+  async function addWhitelistEntry(e) {
+    e.preventDefault();
+
+    const brand = document.getElementById('wl-brand').value;
+    const seller = document.getElementById('wl-seller').value;
+    const marketplace = document.getElementById('wl-marketplace').value;
+    const note = document.getElementById('wl-note').value;
+
+    try {
+      const formData = new FormData();
+      formData.append('brand', brand);
+      formData.append('seller_name', seller);
+      formData.append('marketplace', marketplace);
+      formData.append('note', note);
+
+      const res = await fetch(`${API_URL}/whitelist`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        showToast(`"${seller}" добавлен в белый список`, 'success');
+        document.getElementById('wl-brand').value = '';
+        document.getElementById('wl-seller').value = '';
+        document.getElementById('wl-note').value = '';
+        loadWhitelist();
+      } else {
+        showToast('Ошибка добавления', 'error');
+      }
+    } catch (e) {
+      showToast('Ошибка добавления', 'error');
+    }
+  }
+
+  async function deleteWhitelistEntry(id) {
+    if (!confirm('Удалить запись из белого списка?')) return;
+
+    try {
+      const res = await fetch(`${API_URL}/whitelist/${id}`, {
+        method: 'DELETE'
+      });
+
+      if (res.ok) {
+        showToast('Запись удалена', 'success');
+        loadWhitelist();
+      } else {
+        showToast('Ошибка удаления', 'error');
+      }
+    } catch (e) {
+      showToast('Ошибка удаления', 'error');
+    }
+  }
+
+  // Initialize with history tab
+  switchDbTab('history');
+
+  function showToast(msg, type='error') {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.style.background = type === 'error' ? '#ff2d55' : '#34c759';
+    toast.style.display = 'block';
+    setTimeout(() => toast.style.display = 'none', 5000);
+  }
+
+  function updateCounters() {
+    animateNum('cnt-fake',  state.fake);
+    animateNum('cnt-real',  state.real);
+    animateNum('cnt-sus',   state.sus);
+    animateNum('cnt-total', state.total);
+  }
+
+  function animateNum(id, target) {
+    const el = document.getElementById(id);
+    const start = parseInt(el.textContent) || 0;
+    const dur = 600, step = 16;
+    let t = 0;
+    const timer = setInterval(() => {
+      t += step;
+      el.textContent = Math.round(start + (target - start) * Math.min(t / dur, 1));
+      if (t >= dur) clearInterval(timer);
+    }, step);
+  }
+
+  function previewImage(input, prevId, boxId) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = document.getElementById(prevId);
+      img.src = e.target.result;
+      img.style.display = 'block';
+      checkReady();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function checkReady() {
+    const o = document.getElementById('file-orig').files.length > 0;
+    const s = document.getElementById('file-sus').files.length > 0;
+    const urlO = state.origBytes !== null;
+    const urlS = state.susBytes !== null;
+    document.getElementById('analyze-btn').disabled = !((o && s) || (urlO && urlS) || (o && urlS) || (urlO && s));
+  }
+
+  // ─── Image input mode tabs ─────────────────────────────────────────────
+  document.getElementById('tab-upload').addEventListener('change', (e) => {
+    if (e.target.checked) {
+      document.getElementById('tab-upload').classList.add('active');
+      document.getElementById('tab-url').classList.remove('active');
+      document.getElementById('url-input-group').classList.remove('active');
+      document.getElementById('sus-url-input-group').classList.remove('active');
+      document.getElementById('file-orig').disabled = false;
+      document.getElementById('file-sus').disabled = false;
+      document.getElementById('parse-btn').disabled = true;
+      document.getElementById('parse-sus-btn').disabled = true;
+      checkReady();
+    }
+  });
+
+  document.getElementById('tab-url').addEventListener('change', (e) => {
+    if (e.target.checked) {
+      document.getElementById('tab-url').classList.add('active');
+      document.getElementById('tab-upload').classList.remove('active');
+      document.getElementById('url-input-group').classList.add('active');
+      document.getElementById('sus-url-input-group').classList.add('active');
+      document.getElementById('parse-btn').disabled = true;
+      document.getElementById('parse-sus-btn').disabled = true;
+    }
+  });
+
+  // ─── URL parsing ───────────────────────────────────────────────────
+  const urlInput = document.getElementById('url-input');
+  const parseBtn = document.getElementById('parse-btn');
+  const parseStatus = document.getElementById('parse-status');
+
+  urlInput.addEventListener('input', () => {
+    parseBtn.disabled = !urlInput.value.trim();
+    document.getElementById('analyze-deep-btn').disabled = !urlInput.value.trim();
+    parseStatus.textContent = '';
+  });
+
+  parseBtn.addEventListener('click', async () => {
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    parseStatus.textContent = 'Загрузка изображения с маркетплейса...';
+    parseBtn.disabled = true;
+
+    try {
+      const formData = new FormData();
+      formData.append('url', url);
+
+      const response = await fetch(`${API_URL}/parse-image`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Не удалось загрузить изображение с маркетплейса');
+      }
+
+      const data = await response.json();
+      const img = new Image();
+      img.onload = () => {
+        document.getElementById('prev-sus').style.display = 'block';
+        state.susBytes = base64ToBlob(data.image_base64, data.content_type);
+        parseStatus.textContent = '✅ Изображение загружено';
+        checkReady();
+      };
+      img.onerror = () => {
+        parseStatus.textContent = '❌ Ошибка загрузки изображения';
+        parseBtn.disabled = false;
+      };
+      img.src = `data:${data.content_type};base64,${data.image_base64}`;
+
+    } catch (e) {
+      parseStatus.textContent = '❌ ' + e.message;
+      showToast(e.message);
+      parseBtn.disabled = false;
+    }
+  });
+
+  function base64ToBlob(base64, contentType) {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
+    const sliceSize = 512;
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    return new Blob(byteArrays, { type: contentType });
+  }
+
+  // ─── Analysis ───────────────────────────────────────────────────────
+  async function analyze() {
+    const loading = document.getElementById('loading');
+    document.getElementById('loading-text').textContent = `${state.provider} анализирует…`;
+    loading.classList.add('show');
+
+    try {
+      const formData = new FormData();
+
+      // Handle file upload
+      const origFile = document.getElementById('file-orig').files[0];
+      const susFile = document.getElementById('file-sus').files[0];
+
+      if (origFile) {
+        formData.append('original', origFile);
+      } else if (state.origBytes) {
+        // Use blob from URL parsing
+        formData.append('original', new Blob([state.origBytes], { type: 'image/png' }), 'original.png');
+      }
+
+      if (susFile) {
+        formData.append('suspect', susFile);
+      } else if (state.susBytes) {
+        // Use blob from URL parsing
+        formData.append('suspect', new Blob([state.susBytes], { type: 'image/png' }), 'suspect.png');
+      }
+
+      formData.append('brand', document.getElementById('brand-input')?.value || '');
+      formData.append('marketplace', document.getElementById('marketplace-input')?.value || '');
+      formData.append('price_original', parseInt(document.getElementById('price-orig-input')?.value || '0') || 0);
+      formData.append('price_suspect', parseInt(document.getElementById('price-sus-input')?.value || '0') || 0);
+
+      const response = await fetch(`${API_URL}/analyze`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Ошибка анализа');
+      }
+
+      const result = await response.json();
+      showResult(result);
+
+      state.total++;
+      if (result.verdict === 'ПОДДЕЛКА') state.fake++;
+      else if (result.verdict === 'ОРИГИНАЛ') state.real++;
+      else state.sus++;
+      updateCounters();
+
+      addHistory(result);
+
+    } catch (e) {
+      showToast(e.message);
+      console.error(e);
+    }
+
+    loading.classList.remove('show');
+  }
+
+  function showResult(r) {
+    document.getElementById('result-section').style.display = 'block';
+
+    const vl = document.getElementById('verdict-label');
+    vl.textContent = r.verdict;
+    vl.className = 'verdict-main ' + (r.verdict === 'ПОДДЕЛКА' ? 'fake' : r.verdict === 'ОРИГИНАЛ' ? 'real' : 'sus');
+
+    const fill = document.getElementById('conf-fill');
+    fill.className = 'conf-fill ' + (r.verdict === 'ПОДДЕЛКА' ? 'fake' : r.verdict === 'ОРИГИНАЛ' ? 'real' : 'sus');
+    setTimeout(() => { fill.style.width = r.confidence + '%'; }, 50);
+    document.getElementById('conf-pct').textContent = r.confidence + '%';
+
+    document.getElementById('verdict-summary').textContent = r.summary;
+
+    const list = document.getElementById('indicators-list');
+    if (list) {
+      list.innerHTML = '';
+      r.indicators.forEach((ind, i) => {
+        const icon = ind.status === 'ok' ? '✅' : ind.status === 'warn' ? '⚠️' : '❌';
+        const sc = ind.score >= 7 ? 'score-ok' : ind.score >= 4 ? 'score-warn' : 'score-fail';
+        const row = document.createElement('div');
+        row.className = 'indicator-row';
+        row.style.animationDelay = (i * 80) + 'ms';
+        if (row) row.innerHTML = `
+        <span class="ind-icon">${icon}</span>
+        <span class="ind-name">${ind.factor}</span>
+        <span class="ind-detail">${ind.detail}</span>
+        <span class="ind-score ${sc}">${ind.score}/10</span>
+      `;
+        if (row) list.appendChild(row);
+      });
+    }
+
+    const ps = document.getElementById('price-section');
+    ps.style.display = 'block';
+    const priceOrig = document.getElementById('price-orig-input')?.value || '';
+    const priceSus = document.getElementById('price-sus-input')?.value || '';
+    if (priceOrig && priceSus) {
+      const ratio = (priceSus / priceOrig) * 100;
+      document.getElementById('price-badge').textContent = ratio.toFixed(0) + '%';
+      document.getElementById('price-title').textContent =
+        ratio < 60 ? '⚠️ Цена подозрительно низкая' :
+        ratio < 80 ? '⚠️ Цена ниже рыночной' : '✅ Цена в норме';
+      document.getElementById('price-detail').textContent =
+        `Цена подозрительного товара составляет ${ratio.toFixed(0)}% от цены оригинала.`;
+    }
+
+    document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function addHistory(r) {
+    const now = new Date();
+    const time = now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+    const cls = r.verdict === 'ПОДДЕЛКА' ? 'fake' : r.verdict === 'ОРИГИНАЛ' ? 'real' : 'sus';
+    const riskColor = r.risk_level === 'high' ? '#ff2d55' : r.risk_level === 'medium' ? '#ff9f0a' : '#34c759';
+    const pillCls = cls === 'fake' ? 'pill-fake' : cls === 'real' ? 'pill-real' : 'pill-sus';
+
+    state.history.unshift({ time, brand: document.getElementById('brand-input')?.value || '—', mp: document.getElementById('marketplace-input')?.value, ...r });
+    if (state.history.length > 5) state.history.pop();
+
+    const tbody = document.getElementById('db-history-body');
+    if (tbody) {
+      tbody.innerHTML = '';
+      state.history.forEach(h => {
+      const tr = document.createElement('tr');
+      if (tr) tr.innerHTML = `
+        <td>${h.time}</td>
+        <td>${h.brand}</td>
+        <td>${h.mp}</td>
+        <td><span class="pill ${pillCls}">${h.verdict}</span></td>
+        <td>${h.confidence}%</td>
+        <td style="color:${riskColor};font-weight:600">${h.risk_level.toUpperCase()}</td>
+      `;
+        if (tr && tbody) tbody.appendChild(tr);
+      });
+    }
+  }
+
+  async function analyzeDeep() {
+    const url = document.getElementById('url-input').value.trim();
+    const brand = document.getElementById('brand-input').value;
+    const marketplace = document.getElementById('marketplace-input').value;
+    const priceOriginal = parseInt(document.getElementById('price-orig-input').value) || 0;
+
+    if (!url) {
+      showToast('Введите URL маркетплейса', 'error');
+      return;
+    }
+
+    const loading = document.getElementById('loading');
+    const progressWrap = document.getElementById('batch-progress');
+    const progressFill = document.getElementById('batch-progress-fill');
+    const progressText = document.getElementById('batch-progress-text');
+    const progressStatus = document.getElementById('batch-progress-status');
+
+    document.getElementById('loading-text').textContent = 'Собираю фото карточки...';
+    loading.classList.add('show');
+    progressWrap.classList.add('active');
+    progressFill.style.width = '0%';
+    progressText.textContent = '0%';
+
+    try {
+      const response = await fetch(`${API_URL}/analyze-deep`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          url: url,
+          reference_image: state.origBytes ? btoa(String.fromCharCode(...new Uint8Array(state.origBytes))) : '',
+          brand: brand,
+          marketplace: marketplace,
+          price_original: priceOriginal
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Ошибка глубокого анализа');
+      }
+
+      const result = await response.json();
+
+      // Update verdict
+      const verdictTitle = document.getElementById('deep-verdict-title');
+      verdictTitle.textContent = `Вердикт: ${result.final_verdict}`;
+      verdictTitle.className = 'badge ' + (result.final_verdict === 'ПОДДЕЛКА' ? 'badge-fake' : result.final_verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus');
+
+      // Update summary
+      document.getElementById('deep-summary').textContent = `${result.total_images} изображений • ${result.suspicious_count} подозрительных • ${result.final_confidence}%`;
+
+      // Show/hide sections
+      document.getElementById('card-results-section').style.display = result.card_results.length > 0 ? 'block' : 'none';
+      document.getElementById('review-results-section').style.display = result.review_results.length > 0 ? 'block' : 'none';
+
+      // Render card results
+      const cardGrid = document.getElementById('card-images-grid');
+      cardGrid.innerHTML = '';
+      result.card_results.forEach(r => {
+        const item = document.createElement('div');
+        item.className = 'analysis-item';
+        item.innerHTML = `
+          <div class="badge ${r.verdict === 'ПОДДЕЛКА' ? 'badge-fake' : r.verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus'}">${r.verdict}</div>
+          <h4>Фото #${r.index + 1}</h4>
+          <p>${r.summary}</p>
+        `;
+        cardGrid.appendChild(item);
+      });
+
+      // Render review results
+      const reviewGrid = document.getElementById('review-images-grid');
+      reviewGrid.innerHTML = '';
+      result.review_results.forEach(r => {
+        const item = document.createElement('div');
+        item.className = 'analysis-item';
+        item.innerHTML = `
+          <div class="badge ${r.verdict === 'ПОДДЕЛКА' ? 'badge-fake' : r.verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus'}">${r.verdict}</div>
+          <h4>Отзыв #${r.index + 1}</h4>
+          <p>${r.summary}</p>
+        `;
+        reviewGrid.appendChild(item);
+      });
+
+      // Render red flags
+      const redFlagsContainer = document.getElementById('red-flags-container');
+      redFlagsContainer.innerHTML = '';
+      if (result.red_flags.length > 0) {
+        const badge = document.createElement('div');
+        badge.className = 'badge badge-red';
+        badge.textContent = `🔴 Найдено ${result.red_flags.length} проблем`;
+        redFlagsContainer.appendChild(badge);
+
+        const list = document.createElement('div');
+        list.style.marginTop = '12px';
+        list.style.display = 'flex';
+        list.style.flexDirection = 'column';
+        list.style.gap = '8px';
+
+        result.red_flags.forEach(flag => {
+          const item = document.createElement('div');
+          item.style.padding = '8px';
+          item.style.background = '#fff0f3';
+          item.style.borderRadius = '8px';
+          item.style.fontSize = '13px';
+          item.textContent = flag;
+          list.appendChild(item);
+        });
+
+        redFlagsContainer.appendChild(list);
+      }
+
+      // Scroll to results
+      document.getElementById('deep-analysis-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('deep-analysis-section').style.display = 'block';
+
+    } catch (e) {
+      showToast(e.message, 'error');
+      console.error(e);
+    } finally {
+      loading.classList.remove('show');
+      progressWrap.classList.remove('active');
+    }
+  }
+
+  async function runBatch() {
+    const fileInput = document.getElementById('batch-file');
+    const refInput = document.getElementById('batch-reference');
+    const brandInput = document.getElementById('batch-brand');
+
+    if (!fileInput.files.length || !refInput.files.length) {
+      showToast('Пожалуйста, выберите файл Excel и фото эталона', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('reference', refInput.files[0]);
+    formData.append('brand', brandInput.value);
+    formData.append('provider', 'gemini');
+
+    const progressWrap = document.getElementById('batch-progress');
+    const progressFill = document.getElementById('batch-progress-fill');
+    const progressText = document.getElementById('batch-progress-text');
+    const progressStatus = document.getElementById('batch-progress-status');
+    const downloadSection = document.getElementById('batch-download');
+    const downloadBtn = document.getElementById('batch-download-link');
+
+    progressWrap.classList.add('active');
+    downloadSection.classList.remove('active');
+
+    try {
+      const res = await fetch(`${API_URL}/batch`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        throw new Error('Ошибка запуска задачи');
+      }
+
+      const data = await res.json();
+
+      progressStatus.textContent = 'Обработка...';
+
+      const interval = setInterval(async () => {
+        const statusRes = await fetch(`${API_URL}/batch/${data.task_id}`);
+        const statusData = await statusRes.json();
+
+        if (statusData.status === 'processing') {
+          progressFill.style.width = `${(statusData.done / statusData.total) * 100}%`;
+          progressText.textContent = `${statusData.done}/${statusData.total}`;
+        } else if (statusData.status === 'completed') {
+          clearInterval(interval);
+          progressFill.style.width = '100%';
+          progressText.textContent = '100%';
+          progressStatus.textContent = 'Готово!';
+
+          const blob = new Blob([statusData.results], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+          const url = URL.createObjectURL(blob);
+          downloadBtn.href = url;
+          downloadSection.classList.add('active');
+        } else if (statusData.status === 'error') {
+          clearInterval(interval);
+          showToast(`Ошибка: ${statusData.error}`, 'error');
+          progressWrap.classList.remove('active');
+        }
+      }, 2000);
+
+    } catch (e) {
+      showToast(e.message, 'error');
+      progressWrap.classList.remove('active');
+    }
+  }
+</script>
+</body>
+</html>
