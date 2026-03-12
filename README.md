@@ -90,14 +90,26 @@ uvicorn server:app --reload
 - **Backend**: FastAPI, Uvicorn, httpx, BeautifulSoup4
 - **Frontend**: HTML5, CSS3, Vanilla JS
 - **AI Models**:
-  - Gemini 2.0 Flash Vision (Google)
+  - Gemini 2.5 Flash Vision (Google)
   - Grok 2 Vision (xAI)
 - **Features**:
   - Мульти-маркетплейс парсинг (Wildberries, Ozon, Яндекс Маркет)
   - Автоматическое извлечение карточек и отзывов с фото
   - Параллельный анализ изображений с rate limiting
-  - Батч-обработка множества товаров
+  - Батч-обработка множества товаров (Excel-импорт)
   - Retry logic с exponential backoff
   - CORS для фронтенда
   - Pydantic Settings для конфигурации
   - Агрегация результатов от нескольких моделей/парсеров
+  - История проверок в SQLite
+  - Whitelist для исключённых брендов
+
+## 🗺️ Roadmap
+
+### v0.2 — Фундамент
+- [ ] Docker + docker-compose для удобного запуска в одной команде
+- [ ] Юнит-тесты для парсеров и LLM-провайдера
+
+### v0.3 — Масштабирование
+- [ ] Поддержка Авито и AliExpress
+- [ ] Telegram-бот интерфейс: отправил ссылку — получил результат
