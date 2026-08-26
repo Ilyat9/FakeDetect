@@ -1,0 +1,2 @@
+locust>=2.20
+gevent>=23.9

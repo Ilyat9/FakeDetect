@@ -156,3 +156,6 @@ cython_debug/
 *.sqlite-journal
 *.db-shm
 *.db-wal
+evidence/
+loadtests/report*
+

@@ -3,9 +3,19 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse
 
+from core.config import MAX_IMAGE_UPLOAD_BYTES
 from core.security import verify_api_key
 from database import (
     add_to_whitelist,
@@ -14,6 +24,7 @@ from database import (
     get_stats,
     get_whitelist,
 )
+from routers.analysis import read_upload
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["data"], dependencies=[Depends(verify_api_key)])
@@ -40,6 +51,30 @@ async def get_api_stats():
     """Get statistics from database."""
     stats = await get_stats()
     return JSONResponse(content=stats)
+
+
+@router.post("/similar")
+async def find_similar_endpoint(
+    image: UploadFile = File(...),
+    request: Request = None,
+    max_distance: int = Query(8, ge=1, le=32),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Reverse image search (Block B.1): find all checks with similar imagery."""
+    from database import find_similar_images
+    from forensics.phash import compute_phash
+
+    image_bytes = await read_upload(image, request, MAX_IMAGE_UPLOAD_BYTES)
+    phash = compute_phash(image_bytes)
+    if not phash:
+        raise HTTPException(status_code=400, detail="Не удалось декодировать изображение")
+
+    matches = await find_similar_images(phash, max_distance=max_distance, limit=limit)
+    return JSONResponse(content={
+        "phash": phash,
+        "total": len(matches),
+        "matches": matches,
+    })
 
 
 @router.get("/whitelist")

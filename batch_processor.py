@@ -9,6 +9,7 @@ from dataclasses import dataclass, asdict
 import sys
 
 import httpx
+import pandas as pd
 
 try:
     import playwright.async_api  # noqa: F401
@@ -171,7 +172,16 @@ class BatchProcessor:
 
             logger.info(f"[{row_index}] {brand or 'No brand'} — analyzing...")
 
-            result = await self.provider.analyze(reference_bytes, suspect_bytes, meta)
+            # Block A.4: strict validation of every LLM answer (+1 corrective retry).
+            from core.llm_gateway import validated_provider_call
+
+            result = (await validated_provider_call(
+                self.provider,
+                reference_bytes,
+                suspect_bytes,
+                meta,
+                provider_label=f"batch[{row_index}]",
+            )).model_dump()
 
             verdict = result.get('verdict', '?')
             confidence = result.get('confidence', 0)

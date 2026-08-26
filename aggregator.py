@@ -77,19 +77,25 @@ class ImageAggregator:
             """Analyze a single image with rate limiting."""
             async with semaphore:
                 try:
-                    result = await self.provider.analyze(
-                        original_bytes=reference_bytes,
-                        suspect_bytes=image_bytes,
-                        meta=meta
+                    # Block A.4: strict validation + single corrective retry.
+                    from core.llm_gateway import validated_provider_call
+
+                    result_obj = await validated_provider_call(
+                        self.provider,
+                        reference_bytes,
+                        image_bytes,
+                        meta,
+                        provider_label=f"{image_type}#{index}",
                     )
+                    data = result_obj.model_dump()
                     return ImageAnalysisResult(
                         image_type=image_type,
                         index=index,
-                        verdict=result.get('verdict', 'UNKNOWN'),
-                        confidence=result.get('confidence', 0),
-                        summary=result.get('summary', ''),
-                        risk_level=result.get('risk_level', 'low'),
-                        indicators=result.get('indicators', [])
+                        verdict=data.get('verdict', 'UNKNOWN'),
+                        confidence=data.get('confidence', 0),
+                        summary=data.get('summary', ''),
+                        risk_level=data.get('risk_level', 'low'),
+                        indicators=data.get('indicators', [])
                     )
                 except Exception as e:
                     logger.error(f"Error analyzing image {index} ({image_type}): {e}")
@@ -102,6 +108,7 @@ class ImageAggregator:
                         risk_level='low',
                         indicators=[]
                     )
+
 
         # Analyze card images
         tasks = []

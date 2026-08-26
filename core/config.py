@@ -28,6 +28,67 @@ class Settings(BaseSettings):
     # If set, protected endpoints require the X-API-Key header.
     api_secret_key: Optional[SecretStr] = None
 
+    # --- Block A: production reliability --------------------------------------
+    # A.5: structured JSON logs when set to "json".
+    log_format: str = "text"
+    # A.3: single timeout budget for the whole request path (seconds).
+    request_timeout_budget_seconds: float = 55.0
+    # A.1: circuit breaker per provider.
+    cb_failure_threshold: int = 5            # consecutive failures -> open
+    cb_recovery_base_seconds: float = 10.0   # first recovery window (exponential growth)
+    cb_recovery_max_seconds: float = 600.0
+    # A.6: preventive token-bucket throttling per provider (calibrated to quota).
+    rl_capacity: int = 30                    # burst capacity (tokens)
+    rl_refill_rate: float = 0.5              # sustained rate (tokens per second)
+    # A.6: queueing instead of 500 when every provider is down.
+    retry_queue_poll_seconds: float = 15.0
+    retry_queue_max_attempts: int = 5
+    # A.2: idempotency cache TTL for stored verdicts.
+    idempotency_ttl_hours: int = 24
+
+    # --- Block B: forensic layers ----------------------------------------------
+    # B.1: hamming distance threshold for "same image" (8x8 pHash has 64 bits).
+    phash_hamming_threshold: int = 8
+    # B.2: ELA calibration.
+    ela_quality: int = 90
+    ela_flag_threshold: float = 25.0
+    # B.3: multi-model consensus band — first-pass confidence inside [low..high]
+    # triggers a second provider opinion.
+    consensus_confidence_low: int = 40
+    consensus_confidence_high: int = 70
+    # B.4: composite score weights (Σ w·s / Σw over available signals).
+    w_llm_confidence: float = 0.45
+    w_phash_similarity: float = 0.25
+    w_ela: float = 0.15
+    w_exif: float = 0.05
+    w_price: float = 0.10
+    # price authenticity mapping: ratio<=floor → 0, >=ceiling → 100.
+    price_floor: float = 0.2
+    price_ceiling: float = 0.8
+
+    # --- Block C: discovery / autonomous monitoring -----------------------------
+    discovery_tick_seconds: float = 60.0      # scheduler poll interval
+    scheduler_due_batch: int = 5              # watches started per tick
+    discovery_max_listings_per_keyword: int = 20
+    discovery_concurrency: int = 3            # parallel listing analyses
+    recheck_original_days: int = 7            # TTL by verdict (C.3)
+    recheck_suspicious_days: int = 2
+    recheck_fake_days: int = 1
+    digest_default_hours: int = 24
+
+    # --- Block D: evidence & workflow -------------------------------------------
+    evidence_screenshots_enabled: bool = True   # best-effort page screenshots
+
+    def composite_weights(self) -> Dict[str, float]:
+        return {
+            "w_llm_confidence": self.w_llm_confidence,
+            "w_phash_similarity": self.w_phash_similarity,
+            "w_ela": self.w_ela,
+            "w_exif": self.w_exif,
+            "w_price": self.w_price,
+        }
+
+
     class Config:
         env_file = ".env"
         case_sensitive = False

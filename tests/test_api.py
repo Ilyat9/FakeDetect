@@ -16,11 +16,23 @@ def _xlsx_bytes(rows: list) -> bytes:
 
 
 def test_health(client):
+    """Block A.5: /health reports detailed per-dependency status."""
     res = client.get("/health")
     assert res.status_code == 200
     data = res.json()
-    assert data["status"] == "ok"
-    assert "provider" in data
+    assert data["status"] in ("ok", "degraded")
+    assert data["provider"] == "gemini"
+    checks = data["checks"]
+    assert checks["database"]["ok"] is True
+    for name in ("gemini", "grok"):
+        assert name in checks["llm_providers"]
+        assert "configured" in checks["llm_providers"][name]
+        assert "circuit_state" in checks["llm_providers"][name] \
+            if checks["llm_providers"][name]["configured"] else True
+    assert "available" in checks["playwright"]
+    # Deep mode pings provider REST endpoints.
+    res_deep = client.get("/health?deep=true")
+    assert res_deep.status_code == 200
 
 
 def test_index_served(client):

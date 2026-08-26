@@ -1,0 +1,28 @@
+{
+  "cases": [
+    {
+      "id": "case_original_vs_identical",
+      "reference": "case_original_vs_identical_ref.png",
+      "suspect": "case_original_vs_identical_sus.png",
+      "expected_verdict": "ОРИГИНАЛ"
+    },
+    {
+      "id": "case_slight_edit",
+      "reference": "case_slight_edit_ref.png",
+      "suspect": "case_slight_edit_sus.png",
+      "expected_verdict": "ПОДОЗРИТЕЛЬНО"
+    },
+    {
+      "id": "case_counterfeit_clone",
+      "reference": "case_counterfeit_clone_ref.png",
+      "suspect": "case_counterfeit_clone_sus.png",
+      "expected_verdict": "ПОДДЕЛКА"
+    },
+    {
+      "id": "case_borderline_edit",
+      "reference": "case_borderline_edit_ref.png",
+      "suspect": "case_borderline_edit_sus.png",
+      "expected_verdict": "ПОДОЗРИТЕЛЬНО"
+    }
+  ]
+}
