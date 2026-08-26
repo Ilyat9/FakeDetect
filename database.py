@@ -1,11 +1,46 @@
 import aiosqlite
 import logging
+import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "fakedetect.db"
+DB_PATH = os.getenv("DB_PATH", "fakedetect.db")
+
+# Versioned migrations applied at startup (in order). Append new tuples to
+# change the schema — never edit already-applied entries.
+# For Postgres production deployments use SQLAlchemy async + Alembic instead
+# (see README "Миграции").
+MIGRATIONS: list = [
+    # Example format:
+    # (1, "add seller column", ["ALTER TABLE checks ADD COLUMN seller TEXT"]),
+]
+
+
+async def _apply_migrations(db) -> None:
+    """Apply pending schema migrations, tracked in schema_migrations table."""
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            description TEXT,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor = await db.execute("SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
+    row = await cursor.fetchone()
+    current_version = row[0] if row else 0
+
+    for version, description, statements in MIGRATIONS:
+        if version <= current_version:
+            continue
+        logger.info(f"Applying migration #{version}: {description}")
+        for statement in statements:
+            await db.execute(statement)
+        await db.execute(
+            "INSERT INTO schema_migrations (version, description) VALUES (?, ?)",
+            (version, description)
+        )
 
 whitelist_seeds = [
     ("Nike", "Nike Official Store", "WB"),
@@ -67,6 +102,35 @@ async def init_db() -> None:
                 )
             """)
 
+            # batch_tasks — фоновые задачи батч-обработки (персистентное хранилище)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS batch_tasks (
+                    id TEXT PRIMARY KEY,
+                    total INTEGER DEFAULT 0,
+                    done INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'processing',
+                    error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    result_file_path TEXT
+                )
+            """)
+
+            # Индексы для частых запросов
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_checks_brand ON checks(brand)")
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_checks_checked_at ON checks(checked_at DESC)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_whitelist_lookup "
+                "ON whitelist(seller_name, brand, marketplace)"
+            )
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_batch_tasks_created_at ON batch_tasks(created_at)"
+            )
+
+            # WAL-режим для конкурентного доступа на чтение/запись
+            await db.execute("PRAGMA journal_mode=WAL")
+
             # Seed whitelist if empty
             cursor = await db.execute("SELECT COUNT(*) FROM whitelist")
             row = await cursor.fetchone()
@@ -88,6 +152,8 @@ async def init_db() -> None:
                     await db.execute("INSERT INTO brands (name, keywords) VALUES (?, ?)", (name, keywords))
                 logger.info(f"Seeded {len(brands_seeds)} brands")
 
+            await db.commit()
+            await _apply_migrations(db)
             await db.commit()
             logger.info("Database initialized")
 
@@ -131,31 +197,33 @@ async def save_check(result: dict) -> int:
         return -1
 
 
-async def get_checks(limit: int = 50, brand: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Get check history from database."""
+async def get_checks(
+    limit: int = 50, brand: Optional[str] = None, offset: int = 0
+) -> tuple:
+    """Get check history page and total count. Returns (checks, total)."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
 
-            if brand:
-                query = "SELECT * FROM checks WHERE brand = ? ORDER BY checked_at DESC LIMIT ?"
-                params = [brand, limit]
-            else:
-                query = "SELECT * FROM checks ORDER BY checked_at DESC LIMIT ?"
-                params = [limit]
+            where = "WHERE brand = ?" if brand else ""
+            params = [brand] if brand else []
 
-            cursor = await db.execute(query, params)
+            count_cursor = await db.execute(f"SELECT COUNT(*) FROM checks {where}", params)
+            count_row = await count_cursor.fetchone()
+            total = count_row[0] if count_row else 0
+
+            query = (
+                f"SELECT * FROM checks {where} "
+                f"ORDER BY checked_at DESC, id DESC LIMIT ? OFFSET ?"
+            )
+            cursor = await db.execute(query, [*params, limit, max(offset, 0)])
             rows = await cursor.fetchall()
 
-            checks = []
-            for row in rows:
-                checks.append(dict(row))
-
-            return checks
+            return [dict(row) for row in rows], total
 
     except Exception as e:
         logger.error(f"Failed to get checks: {e}")
-        return []
+        return [], 0
 
 
 async def is_whitelisted(seller: str, brand: str, marketplace: str) -> bool:
@@ -182,16 +250,17 @@ async def is_whitelisted(seller: str, brand: str, marketplace: str) -> bool:
 
 
 async def add_to_whitelist(brand: str, seller_name: str, marketplace: str = "", note: str = "") -> int:
-    """Add entry to whitelist."""
+    """Add entry to whitelist. Returns the new row id, or -1 on failure."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
+            cursor = await db.execute(
                 "INSERT INTO whitelist (brand, seller_name, marketplace, note) VALUES (?, ?, ?, ?)",
                 (brand.strip(), seller_name.strip(), marketplace.strip(), note.strip())
             )
             await db.commit()
-            logger.info(f"Added to whitelist: {seller_name} ({brand})")
-            return 1
+            entry_id = cursor.lastrowid
+            logger.info(f"Added to whitelist #{entry_id}: {seller_name} ({brand})")
+            return entry_id
 
     except Exception as e:
         logger.error(f"Failed to add to whitelist: {e}")
@@ -276,3 +345,94 @@ async def get_stats() -> Dict[str, int]:
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")
         return {"total": 0, "fakes": 0, "originals": 0, "suspicious": 0}
+
+
+# --- batch_tasks persistence -------------------------------------------------
+
+
+async def create_batch_task(task_id: str, total: int) -> None:
+    """Register a new batch task."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO batch_tasks (id, total, done, status) VALUES (?, ?, 0, 'processing')",
+                (task_id, total)
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to create batch task {task_id}: {e}")
+
+
+async def increment_batch_task_progress(task_id: str) -> None:
+    """Increment the done counter for a batch task."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE batch_tasks SET done = done + 1 WHERE id = ?", (task_id,)
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to update progress for batch task {task_id}: {e}")
+
+
+async def set_batch_task_status(
+    task_id: str,
+    status: str,
+    error: Optional[str] = None,
+    result_file_path: Optional[str] = None
+) -> None:
+    """Set final status for a batch task."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE batch_tasks SET status = ?, error = ?, result_file_path = ? WHERE id = ?",
+                (status, error, result_file_path, task_id)
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Failed to set status for batch task {task_id}: {e}")
+
+
+async def get_batch_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a batch task row (without internal fields like file path)."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM batch_tasks WHERE id = ?", (task_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to get batch task {task_id}: {e}")
+        return None
+
+
+async def get_batch_task_result_path(task_id: str) -> Optional[str]:
+    """Fetch the xlsx result path for a completed batch task."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT result_file_path FROM batch_tasks WHERE id = ?", (task_id,)
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        logger.error(f"Failed to get result path for batch task {task_id}: {e}")
+        return None
+
+
+async def cleanup_old_batch_tasks(days: int = 7) -> int:
+    """Delete batch tasks older than N days. Returns number of deleted rows."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "DELETE FROM batch_tasks WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",)
+            )
+            await db.commit()
+            deleted = cursor.rowcount or 0
+            if deleted:
+                logger.info(f"Cleaned up {deleted} old batch tasks")
+            return deleted
+    except Exception as e:
+        logger.error(f"Failed to cleanup old batch tasks: {e}")
+        return 0

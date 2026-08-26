@@ -1037,8 +1037,19 @@
 </section>
 
 <script>
-  const API_URL = 'http://localhost:8000';
+  const API_URL = '/api/v1';  // версия API; фронт и бэк раздаются одним origin
   const state = { fake: 0, real: 0, sus: 0, total: 0, history: [], origBytes: null, susBytes: null, provider: 'Gemini' };
+
+  // Экранирование всех пользовательских / LLM-сгенерированных данных перед вставкой в HTML (2.1)
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   async function checkHealth() {
     try {
@@ -1114,11 +1125,11 @@
 
         return `
           <tr>
-            <td style="font-size:12px;color:var(--muted)">${date}</td>
-            <td>${check.brand || '—'}</td>
-            <td>${check.marketplace || '—'}</td>
-            <td><span class="pill ${check.verdict === 'ПОДДЕЛКА' ? 'pill-fake' : check.verdict === 'ОРИГИНАЛ' ? 'pill-real' : 'pill-sus'}">${check.verdict}</span></td>
-            <td style="font-weight:600">${check.confidence}%</td>
+            <td style="font-size:12px;color:var(--muted)">${escapeHtml(date)}</td>
+            <td>${escapeHtml(check.brand || '—')}</td>
+            <td>${escapeHtml(check.marketplace || '—')}</td>
+            <td><span class="pill ${check.verdict === 'ПОДДЕЛКА' ? 'pill-fake' : check.verdict === 'ОРИГИНАЛ' ? 'pill-real' : 'pill-sus'}">${escapeHtml(check.verdict)}</span></td>
+            <td style="font-weight:600">${parseInt(check.confidence, 10) || 0}%</td>
           </tr>
         `;
       }).join('');
@@ -1149,12 +1160,12 @@
 
         return `
           <tr>
-            <td>${entry.brand}</td>
-            <td>${entry.seller_name}</td>
-            <td>${entry.marketplace || '—'}</td>
-            <td style="font-size:12px;color:var(--muted)">${date}</td>
+            <td>${escapeHtml(entry.brand)}</td>
+            <td>${escapeHtml(entry.seller_name)}</td>
+            <td>${escapeHtml(entry.marketplace || '—')}</td>
+            <td style="font-size:12px;color:var(--muted)">${escapeHtml(date)}</td>
             <td>
-              <button class="whitelist-delete-btn" onclick="deleteWhitelistEntry(${entry.id})">Удалить</button>
+              <button class="whitelist-delete-btn" onclick="deleteWhitelistEntry(${parseInt(entry.id, 10)})">Удалить</button>
             </td>
           </tr>
         `;
@@ -1451,9 +1462,9 @@
         row.style.animationDelay = (i * 80) + 'ms';
         if (row) row.innerHTML = `
         <span class="ind-icon">${icon}</span>
-        <span class="ind-name">${ind.factor}</span>
-        <span class="ind-detail">${ind.detail}</span>
-        <span class="ind-score ${sc}">${ind.score}/10</span>
+        <span class="ind-name">${escapeHtml(ind.factor)}</span>
+        <span class="ind-detail">${escapeHtml(ind.detail)}</span>
+        <span class="ind-score ${sc}">${parseInt(ind.score, 10) || 0}/10</span>
       `;
         if (row) list.appendChild(row);
       });
@@ -1492,12 +1503,12 @@
       state.history.forEach(h => {
       const tr = document.createElement('tr');
       if (tr) tr.innerHTML = `
-        <td>${h.time}</td>
-        <td>${h.brand}</td>
-        <td>${h.mp}</td>
-        <td><span class="pill ${pillCls}">${h.verdict}</span></td>
-        <td>${h.confidence}%</td>
-        <td style="color:${riskColor};font-weight:600">${h.risk_level.toUpperCase()}</td>
+        <td>${escapeHtml(h.time)}</td>
+        <td>${escapeHtml(h.brand)}</td>
+        <td>${escapeHtml(h.mp)}</td>
+        <td><span class="pill ${pillCls}">${escapeHtml(h.verdict)}</span></td>
+        <td>${parseInt(h.confidence, 10) || 0}%</td>
+        <td style="color:${riskColor};font-weight:600">${escapeHtml(h.risk_level || '').toUpperCase()}</td>
       `;
         if (tr && tbody) tbody.appendChild(tr);
       });
@@ -1535,7 +1546,8 @@
           reference_image: state.origBytes ? btoa(String.fromCharCode(...new Uint8Array(state.origBytes))) : '',
           brand: brand,
           marketplace: marketplace,
-          price_original: priceOriginal
+          price_original: priceOriginal,
+          provider_name: (state.provider || 'gemini').toLowerCase()
         })
       });
 
@@ -1564,10 +1576,11 @@
       result.card_results.forEach(r => {
         const item = document.createElement('div');
         item.className = 'analysis-item';
+        const badgeCls = r.verdict === 'ПОДДЕЛКА' ? 'badge-fake' : r.verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus';
         item.innerHTML = `
-          <div class="badge ${r.verdict === 'ПОДДЕЛКА' ? 'badge-fake' : r.verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus'}">${r.verdict}</div>
-          <h4>Фото #${r.index + 1}</h4>
-          <p>${r.summary}</p>
+          <div class="badge ${badgeCls}">${escapeHtml(r.verdict)}</div>
+          <h4>Фото #${parseInt(r.index, 10) + 1}</h4>
+          <p>${escapeHtml(r.summary)}</p>
         `;
         cardGrid.appendChild(item);
       });
@@ -1578,10 +1591,11 @@
       result.review_results.forEach(r => {
         const item = document.createElement('div');
         item.className = 'analysis-item';
+        const badgeCls = r.verdict === 'ПОДДЕЛКА' ? 'badge-fake' : r.verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus';
         item.innerHTML = `
-          <div class="badge ${r.verdict === 'ПОДДЕЛКА' ? 'badge-fake' : r.verdict === 'ОРИГИНАЛ' ? 'badge-real' : 'badge-sus'}">${r.verdict}</div>
-          <h4>Отзыв #${r.index + 1}</h4>
-          <p>${r.summary}</p>
+          <div class="badge ${badgeCls}">${escapeHtml(r.verdict)}</div>
+          <h4>Отзыв #${parseInt(r.index, 10) + 1}</h4>
+          <p>${escapeHtml(r.summary)}</p>
         `;
         reviewGrid.appendChild(item);
       });
@@ -1641,7 +1655,7 @@
     formData.append('file', fileInput.files[0]);
     formData.append('reference', refInput.files[0]);
     formData.append('brand', brandInput.value);
-    formData.append('provider', 'gemini');
+    formData.append('provider_name', 'gemini');
 
     const progressWrap = document.getElementById('batch-progress');
     const progressFill = document.getElementById('batch-progress-fill');
@@ -1668,11 +1682,17 @@
       progressStatus.textContent = 'Обработка...';
 
       const interval = setInterval(async () => {
-        const statusRes = await fetch(`${API_URL}/batch/${data.task_id}`);
-        const statusData = await statusRes.json();
+        let statusData;
+        try {
+          const statusRes = await fetch(`${API_URL}/batch/${data.task_id}`);
+          statusData = await statusRes.json();
+        } catch (e) {
+          return; // transient poll error — retry on next tick
+        }
 
         if (statusData.status === 'processing') {
-          progressFill.style.width = `${(statusData.done / statusData.total) * 100}%`;
+          const pct = statusData.total > 0 ? (statusData.done / statusData.total) * 100 : 0;
+          progressFill.style.width = `${pct}%`;
           progressText.textContent = `${statusData.done}/${statusData.total}`;
         } else if (statusData.status === 'completed') {
           clearInterval(interval);
@@ -1680,13 +1700,24 @@
           progressText.textContent = '100%';
           progressStatus.textContent = 'Готово!';
 
-          const blob = new Blob([statusData.results], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-          const url = URL.createObjectURL(blob);
-          downloadBtn.href = url;
-          downloadSection.classList.add('active');
+          // Скачиваем готовый Excel-отчёт с сервера (1.1)
+          try {
+            const downloadRes = await fetch(`${API_URL}/batch/${data.task_id}/download`);
+            if (!downloadRes.ok) throw new Error('Не удалось скачать отчёт');
+            const blob = await downloadRes.blob();
+            if (downloadBtn.dataset.objectUrl) {
+              URL.revokeObjectURL(downloadBtn.dataset.objectUrl);
+            }
+            const url = URL.createObjectURL(blob);
+            downloadBtn.href = url;
+            downloadBtn.dataset.objectUrl = url;
+            downloadSection.classList.add('active');
+          } catch (e) {
+            showToast(e.message, 'error');
+          }
         } else if (statusData.status === 'error') {
           clearInterval(interval);
-          showToast(`Ошибка: ${statusData.error}`, 'error');
+          showToast(`Ошибка: ${statusData.error || 'неизвестная ошибка'}`, 'error');
           progressWrap.classList.remove('active');
         }
       }, 2000);

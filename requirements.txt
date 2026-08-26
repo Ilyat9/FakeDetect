@@ -6,10 +6,14 @@ uvicorn>=0.34
 python-dotenv>=1.1
 openai>=1.59
 pydantic>=2.10
+python-multipart>=0.0.9
 pydantic-settings>=2.0
 openpyxl>=3.1
 aiosqlite>=0.19
 pandas>=2.0
 beautifulsoup4>=4.12
 lxml>=5.0
-# playwright>=1.40  # Install separately: playwright install chromium
+# Требуется для глубокого анализа (/analyze-deep) и батч-скриншотов.
+# После установки зависимостей выполните: playwright install chromium
+playwright>=1.40
+playwright-stealth>=1.0.6

@@ -1,10 +1,16 @@
 import logging
-from .base import MarketplaceParser, ParseResult
+from .base import MarketplaceParser, ParseResult, detect_marketplace, SUPPORTED_MARKETPLACES
 from .wildberries import WildberriesParser
 from .ozon import OzonParser
 from .yandex import YandexParser
 
 logger = logging.getLogger(__name__)
+
+_MARKETPLACE_PARSER_CLASSES = {
+    "WB": WildberriesParser,
+    "Ozon": OzonParser,
+    "YANDEX": YandexParser,
+}
 
 
 async def get_parser(url: str, browser_page=None) -> MarketplaceParser:
@@ -17,15 +23,17 @@ async def get_parser(url: str, browser_page=None) -> MarketplaceParser:
 
     Returns:
         MarketplaceParser instance
-    """
-    marketplace = url.lower()
 
-    if 'wildberries.ru' in marketplace:
-        return WildberriesParser(url, browser_page)
-    elif 'ozon.ru' in marketplace:
-        return OzonParser(url, browser_page)
-    elif 'market.yandex.ru' in marketplace or 'yandex.net' in marketplace:
-        return YandexParser(url, browser_page)
-    else:
+    Raises:
+        ValueError: for unsupported marketplaces (4.5: single source of truth
+            in parsers.base.SUPPORTED_MARKETPLACES).
+    """
+    marketplace = detect_marketplace(url)
+    parser_class = _MARKETPLACE_PARSER_CLASSES.get(marketplace)
+    if not parser_class:
         logger.warning(f"Unknown marketplace URL: {url}")
-        raise ValueError(f"Unsupported marketplace: {url}")
+        supported = ", ".join(SUPPORTED_MARKETPLACES.keys())
+        raise ValueError(
+            f"Unsupported marketplace: {url}. Supported domains: {supported}"
+        )
+    return parser_class(url, browser_page)

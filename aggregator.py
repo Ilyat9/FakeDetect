@@ -37,6 +37,10 @@ class AggregatedResult:
     suspicious_count: int
 
 
+SUSPICIOUS_RATIO_THRESHOLD = 0.30   # >30% suspicious images -> overall 'ПОДОЗРИТЕЛЬНО'
+FAKE_IN_REVIEWS_CONFIDENCE = 90     # any fake found in customer reviews is a strong signal
+
+
 class ImageAggregator:
     """Aggregates image analysis from multiple sources."""
 
@@ -200,11 +204,12 @@ class ImageAggregator:
         # Rule 1: Any fake in reviews → Fake
         fake_reviews = [r for r in review_results if r.verdict == 'ПОДДЕЛКА']
         if fake_reviews:
-            return 'ПОДДЕЛКА', 90, 'high', f'Found {len(fake_reviews)} fake product(s) in reviews'
+            return ('ПОДДЕЛКА', FAKE_IN_REVIEWS_CONFIDENCE, 'high',
+                    f'Found {len(fake_reviews)} fake product(s) in reviews')
 
-        # Rule 2: >30% suspicious → Suspicious
+        # Rule 2: >SUSPICIOUS_RATIO_THRESHOLD suspicious → Suspicious
         suspicious_ratio = suspicious / total
-        if suspicious_ratio > 0.30:
+        if suspicious_ratio > SUSPICIOUS_RATIO_THRESHOLD:
             return 'ПОДОЗРИТЕЛЬНО', avg_confidence, 'medium', \
                    f'{suspicious} out of {total} images ({suspicious_ratio*100:.0f}%) are suspicious'
 

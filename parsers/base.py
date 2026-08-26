@@ -3,6 +3,25 @@ from typing import List, Optional
 from abc import ABC, abstractmethod
 
 
+# Single source of truth for supported marketplaces (used by both
+# MarketplaceParser._get_marketplace and parsers.factory.get_parser).
+SUPPORTED_MARKETPLACES = {
+    "wildberries.ru": "WB",
+    "ozon.ru": "Ozon",
+    "market.yandex.ru": "YANDEX",
+    "yandex.net": "YANDEX",
+}
+
+
+def detect_marketplace(url: str) -> str:
+    """Detect marketplace name from URL. Returns 'UNKNOWN' for unsupported hosts."""
+    url_lower = url.lower()
+    for domain, marketplace in SUPPORTED_MARKETPLACES.items():
+        if domain in url_lower:
+            return marketplace
+    return "UNKNOWN"
+
+
 @dataclass
 class ParseResult:
     """Result of parsing a marketplace URL."""
@@ -32,11 +51,5 @@ class MarketplaceParser(ABC):
     @staticmethod
     def _get_marketplace(url: str) -> str:
         """Detect marketplace from URL."""
-        url_lower = url.lower()
-        if 'wildberries.ru' in url_lower:
-            return 'WB'
-        elif 'ozon.ru' in url_lower:
-            return 'Ozon'
-        elif 'market.yandex.ru' in url_lower or 'yandex.net' in url_lower:
-            return 'YANDEX'
-        return 'UNKNOWN'
+        from .base import detect_marketplace
+        return detect_marketplace(url)
