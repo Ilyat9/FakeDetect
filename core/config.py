@@ -84,6 +84,15 @@ class Settings(BaseSettings):
     billing_yookassa_webhook_secret: Optional[SecretStr] = None
     partner_rate_limit_per_min: int = 30
 
+    # --- Public demo deployment ---------------------------------------------------
+    # Demo mode: anonymous visitors act as 'analyst' of the Default tenant,
+    # protected by per-IP rate limits. Designed for portfolio deployments.
+    demo_mode: bool = False
+    metrics_public: bool = False              # expose /metrics without a key
+    ip_rate_limit_per_min: int = 40           # general per-IP budget
+    ip_rate_limit_analyze_per_min: int = 6    # expensive endpoint per-IP budget
+    demo_max_checks_per_month: int = 200      # hard cost cap for the demo tenant
+
     def composite_weights(self) -> Dict[str, float]:
         return {
             "w_llm_confidence": self.w_llm_confidence,

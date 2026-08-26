@@ -13,6 +13,7 @@ only, no raw LLM output access).
 
 import hashlib
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException, Request
@@ -84,8 +85,9 @@ async def resolve_context(request: Request) -> TenantContext:
     if not raw_key:
         if get_secret(settings.api_secret_key):
             raise HTTPException(status_code=401, detail="X-API-Key header required")
-        # Open mode: single-tenant local deployment.
-        return TenantContext(DEFAULT_TENANT_ID, "owner", "open")
+        # Open/demo mode: single-tenant public deployment.
+        role = "analyst" if settings.demo_mode else "owner"
+        return TenantContext(DEFAULT_TENANT_ID, role, "open")
 
     ctx = await _authenticate(raw_key)
     if ctx is None:
@@ -196,9 +198,29 @@ async def ensure_users_quota(tenant_id: int) -> None:
 
 async def bootstrap() -> None:
     """Startup seeding: default tenant + master key row (if configured)."""
-    from database import create_api_key, ensure_default_tenant
+    from database import (
+        create_api_key,
+        ensure_default_tenant,
+        get_tenant,
+        update_tenant_plan,
+    )
 
     await ensure_default_tenant()
+
+    # Demo deployment: hard cost cap on the shared demo tenant.
+    if settings.demo_mode:
+        tenant = await get_tenant(DEFAULT_TENANT_ID)
+        if tenant and int(tenant.get("max_checks_per_month") or 0) > \
+                settings.demo_max_checks_per_month:
+            await update_tenant_plan(
+                DEFAULT_TENANT_ID,
+                max_checks_per_month=settings.demo_max_checks_per_month,
+            )
+            logger.info(
+                f"Demo mode: default tenant capped at "
+                f"{settings.demo_max_checks_per_month} checks/month"
+            )
+
     master = get_secret(settings.api_secret_key)
     if master:
         inserted = await create_api_key(
@@ -240,3 +262,47 @@ async def partner_rate_limit(request: Request) -> TenantContext:
             headers={"Retry-After": "60"},
         )
     return ctx
+
+
+# --- public demo mode -----------------------------------------------------------------
+
+_ip_buckets: Dict[str, Any] = {}
+
+
+def client_ip(request: Request) -> str:
+    """Client IP for rate limiting (respects the reverse-proxy header)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _prune_buckets() -> None:
+    """Drop idle buckets so the in-memory dict cannot grow unbounded."""
+    now = time.monotonic()
+    stale = [k for k, b in _ip_buckets.items() if now - getattr(b, "_updated_at", now) > 3600]
+    for k in stale:
+        _ip_buckets.pop(k, None)
+
+
+async def ip_rate_limit(request: Request, scope: str, per_min: int) -> None:
+    """Per-IP token bucket for demo deployments (single-process)."""
+    from core.resilience import TokenBucketRateLimiter
+
+    ip = client_ip(request)
+    key = f"{scope}:{ip}"
+    bucket = _ip_buckets.get(key)
+    if bucket is None:
+        if len(_ip_buckets) > 10000:
+            _prune_buckets()
+        bucket = TokenBucketRateLimiter(
+            key, capacity=per_min, refill_rate_per_sec=per_min / 60.0
+        )
+        _ip_buckets[key] = bucket
+    if not await bucket.acquire(timeout=0.0):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Demo rate limit exceeded ({per_min}/min for this IP). "
+                   f"Попробуйте позже.",
+            headers={"Retry-After": "60"},
+        )

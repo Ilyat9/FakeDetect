@@ -7,7 +7,7 @@ import logging
 import time
 
 import aiosqlite
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from core.config import get_api_key_for_provider, get_llm_provider, settings
@@ -96,7 +96,22 @@ async def _pending_retries() -> int:
 
 
 @router.get("/metrics")
-async def metrics():
+async def metrics(request: Request):
+    """Prometheus exposition. Public only when METRICS_PUBLIC=true;
+    otherwise requires an admin/owner key (404 for anonymous probes)."""
+    from services import tenancy
+
+    if not settings.metrics_public:
+        try:
+            ctx = await tenancy.resolve_context(request)
+            from services.tenancy import ROLE_RANK
+
+            if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK["admin"]:
+                raise HTTPException(status_code=404, detail="Not Found")
+        except HTTPException:
+            raise
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=404, detail="Not Found")
     payload, content_type = render_metrics()
     return Response(content=payload, media_type=content_type)
 

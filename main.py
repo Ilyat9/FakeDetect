@@ -13,7 +13,7 @@ import asyncio
 import logging
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -68,6 +68,29 @@ def create_app() -> FastAPI:
     # --- Observability middleware (A.5) ---------------------------------------
     @app.middleware("http")
     async def request_context_middleware(request: Request, call_next):
+        # F/demo: per-IP budget for API calls in public demo deployments.
+        if settings.demo_mode and request.url.path.startswith(API_V1_PREFIX):
+            from services import tenancy
+
+            path = request.url.path
+            is_webhook = "/billing/webhook/" in path
+            is_partner = "/partner/" in path
+            if not is_webhook and not is_partner:
+                try:
+                    if "/analyze" in path:
+                        await tenancy.ip_rate_limit(
+                            request, "analyze",
+                            settings.ip_rate_limit_analyze_per_min,
+                        )
+                    else:
+                        await tenancy.ip_rate_limit(
+                            request, "general", settings.ip_rate_limit_per_min
+                        )
+                except HTTPException as e:
+                    return JSONResponse(status_code=e.status_code,
+                                        content={"detail": e.detail},
+                                        headers=e.headers or {})
+
         rid_token = observability.set_request_id(request.headers.get("x-request-id", ""))
         start = asyncio.get_event_loop().time()
         try:
