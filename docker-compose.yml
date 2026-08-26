@@ -12,6 +12,16 @@ services:
       - app-data:/data
     restart: unless-stopped
 
+  # New SPA frontend (frontend/): nginx serves static assets on :8080 and
+  # reverse-proxies /api/* to the FastAPI backend — single origin, no CORS.
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+
   # Опционально для прод-нагрузки (multi-worker): раскомментируйте и переключите
   # слой database.py на SQLAlchemy async + asyncpg (см. README «Миграции»).
   # postgres:

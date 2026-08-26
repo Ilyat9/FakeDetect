@@ -1,10 +1,87 @@
-# FakeDetect — AI-детектор подделок
+<div align="center">
 
-Система выявления контрафактных товаров на маркетплейсах (WB, Ozon, Яндекс Маркет). Использует Gemini 2.5 Flash Vision для визуального сравнения товаров.
+# FakeDetect — AI-детектор контрафакта на маркетплейсах
+
+[![CI](https://github.com/OWNER/FakeDetect/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![Frontend CI](https://github.com/OWNER/FakeDetect/actions/workflows/frontend-ci.yml/badge.svg)](.github/workflows/frontend-ci.yml)
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-3.1.0-009485)
+![React](https://img.shields.io/badge/frontend-React_19_·_TS_strict-61dafb)
+![Tests](https://img.shields.io/badge/tests-145_passing-brightgreen)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+**Проблема:** бренды теряют выручку на контрафакт в WB / Ozon / Яндекс Маркете.
+Ручной поиск подделок не масштабируется: тысячи карточек, продавцы переезжают между площадками,
+жалобы требуют доказательств, которых «пост-factum» уже не собрать.
+
+**Решение:** FakeDetect автоматически находит подозрительные карточки (автономный discovery по расписанию),
+выносит вердикт «подделка / оригинал» с композитным скорингом (pHash + ELA/EXIF форензика + консенсус
+LLM-визуальных моделей), ведёт каждый случай как кейс со статусной машиной и SLA, собирает юридически
+аккуратный **evidence-PDF** (цепочка хранения доказательств) и текст жалобы одним кликом — и показывает
+руководителю защищённую выручку на дашборде.
+
+</div>
+
+---
+
+## ⚡ Цифры
+
+| | |
+|---|---|
+| 🧪 **145 тестов** | 113 backend (pytest: unit + integration) + 32 frontend (Vitest + RTL + MSW), включая регрессионные тесты контрактов |
+| 🔌 **46 эндпоинтов** `/api/v1` | анализ, батч, кейсы, watches, аналитика, биллинг, partner-API |
+| 🗄 **15 таблиц** | versioned-миграции SQLite (готов слой под Postgres) |
+| 🧱 **6 production-блоков** | надёжность (A) · форензика (B) · мониторинг (C) · evidence/workflow (D) · ROI-дашборд (E) · тенанты/роли/биллинг (F) |
+
+## 🏗 Architecture Highlights
+
+1. **[Свой circuit breaker + retry-queue](ARCHITECTURE.md)** — отказ LLM-провайдера деградирует сервис,
+   а не роняет его: заявки уходят в персистентную очередь повторов, идемпотентность по request_id.
+2. **[Композитный вердикт с объяснением](README.md#-многоуровневый-движок-детекции-block-b)** — pHash fast-path,
+   ELA/EXIF-форензика и консенсус Gemini/Grok; UI показывает разбивку факторов («почему такой вердикт»),
+   а не чёрный ящик.
+3. **[Evidence-PDF с chain of custody](README.md#️-evidence-package-и-workflow-кейсов-block-d)** — скриншоты,
+   артефакты, история цен и переходов статуса фиксируются на момент обнаружения, а не при подаче жалобы.
+4. **[Нормализованный контракт вебхуков](routers/billing.py)** — платёжные провайдеры приводятся к единой
+   внутренней модели событий; подпись проверяется до парсинга бизнес-данных.
+5. **[Мульти-тенантность на X-API-Key](services/tenancy.py)** — роли owner/admin/analyst/viewer/legal,
+   tenant-scoped ответы, 404 вместо 403 против утечки id, квоты тарифных планов.
+6. **[Production-grade SPA фронтенд](frontend/README.md)** — React 19 + TS strict + Feature-Sliced Design
+   (границы слоёв ловит ESLint), TanStack Query/Table/Router, поллинг батчей с зафиксированным тестами
+   контрактом статусов, nginx reverse-proxy (`/api/*` same-origin, CSP без `unsafe-inline`).
+
+## 📸 Скриншоты
+
+> Актуальные снимки лежат в `docs/screenshots/` (обновляются командой из раздела ниже).
+
+| Дашборд ROI-метрик | Проверка карточки |
+|---|---|
+| ![Дашборд: метрики, динамика проверок, топ нарушителей](docs/screenshots/dashboard.png) | ![Вердикт с разбивкой факторов](docs/screenshots/verdict.png) |
+| **Канбан кейсов** | **Brand watch — лента находок** |
+| ![Кейсы: статусы, SLA, bulk-действия](docs/screenshots/cases.png) | ![Автономный мониторинг бренда](docs/screenshots/watches.png) |
+
+<details>
+<summary>Как обновить скриншоты</summary>
+
+```bash
+docker compose up --build      # или: uvicorn main:app --reload  +  cd frontend && npm run dev
+# откройте http://localhost:5173, пройдите по страницам:
+#   /            -> docs/screenshots/dashboard.png
+#   /analyze     -> docs/screenshots/verdict.png   (раскройте «почему такой вердикт»)
+#   /cases       -> docs/screenshots/cases.png     (переключите вид «Канбан»)
+#   /watches     -> docs/screenshots/watches.png
+```
+
+</details>
+
+---
 
 > 📋 **Реестр компромиссов**: все осознанные упрощения каждого блока задокументированы
 > в [COMPROMISES.md](COMPROMISES.md) — что упростили, почему, влияние и как исправить
 > после стабилизации MVP. Обновляется по мере развития.
+>
+> 🧭 **Architecture Decision Highlights**: краткое «почему так» по ключевым решениям —
+> [docs/architecture-decisions.md](docs/architecture-decisions.md).
 
 
 ## Структура проекта
