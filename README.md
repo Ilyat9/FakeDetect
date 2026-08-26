@@ -98,6 +98,73 @@ FakeDetect/
 └── docker-compose.yml        # backend + frontend (nginx, /api same-origin)
 ```
 
+### Схема потоков
+
+```mermaid
+%%{init: {"theme": "dark", "themeVariables": {"primaryColor": "#2b2b2e", "primaryTextColor": "#e8e8ea", "primaryBorderColor": "#55555a", "lineColor": "#9a9aa0", "clusterBkg": "#1d1d20", "clusterBorder": "#3a3a3f", "fontSize": "14px"}}}%%
+flowchart TB
+    subgraph clients["клиенты"]
+        SPA["SPA-фронтенд<br/>React 19 + TanStack"]
+        PARTNER["партнёрский контур<br/>X-API-Key · rate limit"]
+    end
+
+    subgraph api["FastAPI /api/v1"]
+        ROUTERS["routers: analysis · batch · data<br/>cases · watches · analytics · billing"]
+        GUARDS["tenancy: роли owner / admin /<br/>analyst / viewer / legal · квоты"]
+    end
+
+    subgraph detection["конвейер детекции"]
+        PARSERS["parsers<br/>WB · Ozon · Яндекс Маркет"]
+        FORENSICS["forensics<br/>pHash · ELA · EXIF"]
+        LLM["LLM providers<br/>Gemini · Grok + consensus"]
+        AGGREGATOR["aggregator<br/>композитный вердикт"]
+    end
+
+    subgraph reliability["надёжность"]
+        CB["circuit breaker<br/>gemini ↔ grok"]
+        RETRYQ["retry queue<br/>+ идемпотентность"]
+    end
+
+    subgraph background["фоновые процессы"]
+        SCHED["discovery scheduler<br/>brand watches · cron"]
+        WORKER["retry worker"]
+        SLA["SLA-монитор"]
+    end
+
+    DB[("SQLite<br/>15 таблиц · tenant_id")]
+
+    subgraph outputs["результаты"]
+        EVIDENCE["evidence-PDF + жалоба"]
+        DASH["дашборд: защищённая выручка<br/>· TTD / TTR"]
+        TG["Telegram-уведомления"]
+    end
+
+    SPA --> ROUTERS
+    PARTNER --> ROUTERS
+    ROUTERS --> GUARDS
+    GUARDS --> PARSERS
+    GUARDS --> DB
+    PARSERS --> FORENSICS
+    FORENSICS --> AGGREGATOR
+    LLM --> AGGREGATOR
+    CB -.-> LLM
+    RETRYQ -.-> LLM
+    WORKER -.-> RETRYQ
+    AGGREGATOR --> DB
+    SCHED --> PARSERS
+    DB --> SLA
+    SLA --> TG
+    DB --> EVIDENCE
+    DB --> DASH
+
+    classDef accent fill:#ff2d55,stroke:#ff2d55,color:#ffffff;
+    class EVIDENCE,DASH accent;
+```
+
+Ключевые решения (почему свой circuit breaker, нормализованные вебхуки, explainable scoring)
+— [docs/architecture-decisions.md](docs/architecture-decisions.md).
+Осознанные упрощения — [docs/COMPROMISES.md](docs/COMPROMISES.md).
+
 ## Как это работает
 
 **1. Детекция.** Итоговый вердикт — взвешенная сумма нормированных сигналов «подлинности» (0–100),
