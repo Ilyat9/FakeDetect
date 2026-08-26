@@ -28,7 +28,9 @@ from routers import (
     system_router,
     watches_router,
 )
+from routers.billing import router as billing_router
 from routers.cases import router as cases_router
+from routers.partner import router as partner_router
 
 load_dotenv()
 
@@ -95,6 +97,10 @@ def create_app() -> FastAPI:
     async def startup():
         await init_db()
         await cleanup_old_batch_tasks(days=7)
+        # F: default tenant + legacy master key row in api_keys.
+        from services import tenancy
+
+        await tenancy.bootstrap()
         # A.6: background replay of analyses queued during provider outages.
         from services.retry_worker import run_forever
 
@@ -130,6 +136,8 @@ def create_app() -> FastAPI:
     app.include_router(data_router, prefix=API_V1_PREFIX)
     app.include_router(watches_router, prefix=API_V1_PREFIX)
     app.include_router(cases_router, prefix=API_V1_PREFIX)
+    app.include_router(partner_router, prefix=API_V1_PREFIX)
+    app.include_router(billing_router, prefix=API_V1_PREFIX)
     app.include_router(system_router)              # /health, /metrics, /queue/{id}
     app.include_router(system_router, prefix=API_V1_PREFIX)  # v1 aliases
 

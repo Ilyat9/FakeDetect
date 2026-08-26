@@ -31,7 +31,11 @@ async def batch_process(
     brand: str = Form(""),
     provider_name: str = Form("gemini"),
 ):
+    from services import tenancy
     from services.batch_service import run_batch_task
+
+    # F.2/F.3: analyst role + quota for the whole batch at once.
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
 
     try:
         provider = ProviderType(provider_name.strip().lower())  # validate -> 422
@@ -48,11 +52,16 @@ async def batch_process(
     if 'url' not in df.columns:
         raise HTTPException(status_code=400, detail="Excel file must contain 'url' column")
 
+    await tenancy.ensure_checks_quota(ctx.tenant_id, requested=len(df))
+
     # uuid4: unpredictable ids protect against enumeration.
     task_id = str(uuid.uuid4())
-    await create_batch_task(task_id, len(df))
+    await create_batch_task(task_id, len(df), tenant_id=ctx.tenant_id)
 
-    asyncio.create_task(run_batch_task(task_id, df, reference_bytes, provider_name.strip().lower()))
+    asyncio.create_task(run_batch_task(
+        task_id, df, reference_bytes, provider_name.strip().lower(),
+        tenant_id=ctx.tenant_id,
+    ))
 
     return JSONResponse(content={
         "task_id": task_id,

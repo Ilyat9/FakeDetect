@@ -62,9 +62,12 @@ def _estimated_wait_seconds() -> int:
 
 
 @router.post("/parse-image")
-async def parse_image(url: str = Form(...)):
+async def parse_image(request: Request, url: str = Form(...)):
     """Unified marketplace image parsing (no dependency on the LLM provider)."""
+    from services import tenancy
     from services.marketplace_image_fetcher import parse_marketplace_image
+
+    await tenancy.require_ctx(request, min_role="viewer")
     try:
         return await parse_marketplace_image(url)
     except ValueError as e:
@@ -88,9 +91,12 @@ async def analyze(
 ):
     """Single-pair analysis with idempotency, failover and queueing."""
     import core.llm_gateway as gateway
+    from services import tenancy
     from telegram_alerts import send_telegram_alert
 
     rid = _resolve_request_id(request, request_id)
+    # F.2/F.3: role gate + plan quota (cached replays don't consume quota).
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
 
     # A.2 — replay a cached verdict instead of paying for the LLM twice.
     cached = await cache_get_result(rid, ttl_hours=settings.idempotency_ttl_hours)
@@ -104,6 +110,10 @@ async def analyze(
         get_api_key_for_provider("gemini") or get_api_key_for_provider("grok")
     ):
         raise HTTPException(status_code=500, detail="API key not configured")
+
+    # F.3 — monthly checks quota of the caller's tariff plan.
+    await tenancy.ensure_checks_quota(ctx.tenant_id, requested=1)
+    tenant_id = ctx.tenant_id
 
     if brand and len(brand) > 200:
         raise HTTPException(status_code=400, detail="Brand name too long (max 200 chars)")
@@ -179,6 +189,8 @@ async def analyze(
                 marketplace=marketplace,
                 price_original=price_original,
                 price_suspect=price_suspect,
+                seller=seller,
+                tenant_id=tenant_id,
             )
 
     # A.3 — one deadline for the whole path.
@@ -243,6 +255,7 @@ async def analyze(
         price_original=price_original,
         price_suspect=price_suspect,
         seller=seller,
+        tenant_id=tenant_id,
     )
 
 
@@ -263,6 +276,7 @@ async def _finalize_analyze_response(
     price_original: int,
     price_suspect: int,
     seller: str = "",
+    tenant_id: int = 1,
 ) -> JSONResponse:
     """Shared tail for the pHash fast path and the full LLM path (Block B)."""
     from core.verdict_engine import adjust_confidence_with_forensics, compute_final_score
@@ -329,6 +343,7 @@ async def _finalize_analyze_response(
         "price_suspect": price_suspect,
         "seller": seller,
         "request_id": rid,
+        "tenant_id": tenant_id,
         "phash": suspect_phash,
         "phash_similarity_reference": phash_similarity,
         "ela_score": ela["ela_score"],
@@ -392,6 +407,7 @@ async def _finalize_analyze_response(
 
 @router.post("/analyze-deep")
 async def analyze_deep(
+    request: Request,
     url: str = Form(...),
     reference_image: str = Form(...),
     brand: str = Form(""),
@@ -408,6 +424,12 @@ async def analyze_deep(
     from PIL import Image
     from aggregator import ImageAggregator
     import core.llm_gateway as gateway
+    from services import tenancy
+
+    # F.2/F.3: role gate + monthly quota.
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
+    await tenancy.ensure_checks_quota(ctx.tenant_id, requested=1)
+    tenant_id = ctx.tenant_id
 
     effective_provider = (provider_name or settings.provider).strip().lower()
     try:
@@ -525,6 +547,7 @@ async def analyze_deep(
         "marketplace": marketplace,
         "price_original": price_original,
         "partial_data": partial_data,
+        "tenant_id": tenant_id,
     }
     if partial_reason:
         result_with_meta["partial_reason"] = partial_reason

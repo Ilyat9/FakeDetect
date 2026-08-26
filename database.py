@@ -44,6 +44,23 @@ MIGRATIONS: list = [
             "ALTER TABLE checks ADD COLUMN evidence_files TEXT",
         ],
     ),
+    (
+        4,
+        "block F: tenant isolation columns",
+        [
+            "ALTER TABLE checks ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE whitelist ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE brands ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE batch_tasks ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE brand_watches ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE discovery_listings ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE image_hashes ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "ALTER TABLE cases ADD COLUMN tenant_id INTEGER DEFAULT 1",
+            "CREATE INDEX IF NOT EXISTS idx_checks_tenant ON checks(tenant_id)",
+            "CREATE INDEX IF NOT EXISTS idx_cases_tenant ON cases(tenant_id)",
+            "CREATE INDEX IF NOT EXISTS idx_watches_tenant ON brand_watches(tenant_id)",
+        ],
+    ),
 ]
 
 
@@ -305,6 +322,37 @@ async def init_db() -> None:
                 )
             """)
 
+            # tenants — организации-клиенты (Block F.1/F.3).
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS tenants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    plan TEXT DEFAULT 'free',           -- free|pro|business
+                    max_checks_per_month INTEGER DEFAULT 100,
+                    max_watches INTEGER DEFAULT 2,
+                    max_users INTEGER DEFAULT 3,
+                    is_active INTEGER DEFAULT 1,
+                    payment_provider TEXT,              -- stripe|yookassa (F.4)
+                    external_sub_id TEXT,
+                    current_period_end TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # api_keys — ключи доступа per-tenant с ролями (Block F.2/F.5).
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tenant_id INTEGER NOT NULL,
+                    key_hash TEXT UNIQUE NOT NULL,      -- SHA-256 of the raw key
+                    name TEXT,
+                    role TEXT DEFAULT 'viewer',         -- owner|admin|analyst|viewer|legal
+                    is_active INTEGER DEFAULT 1,
+                    last_used_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
             # WAL-режим для конкурентного доступа на чтение/запись
             await db.execute("PRAGMA journal_mode=WAL")
 
@@ -348,7 +396,7 @@ def _to_json(value):
 
 
 async def save_check(result: dict) -> int:
-    """Save check result to database (Block A.8 fingerprint + Block B forensics)."""
+    """Save check result to database (A.8 fingerprint + B forensics + F tenant)."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
@@ -357,8 +405,9 @@ async def save_check(result: dict) -> int:
                     price_original, price_suspect, result_icon, seller,
                     prompt_version, prompt_hash,
                     ela_score, ela_flag, exif_flags, final_score, score_components,
-                    phash, verdict_source, consensus, raw_model_responses)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    phash, verdict_source, consensus, raw_model_responses,
+                    tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     result.get('url'),
                     result.get('brand'),
@@ -382,6 +431,7 @@ async def save_check(result: dict) -> int:
                     result.get('verdict_source'),
                     result.get('consensus'),
                     _to_json(result.get('raw_model_responses')),
+                    int(result.get('tenant_id') or 1),
                 )
             )
             await db.commit()
@@ -397,15 +447,22 @@ async def save_check(result: dict) -> int:
 
 
 async def get_checks(
-    limit: int = 50, brand: Optional[str] = None, offset: int = 0
+    limit: int = 50, brand: Optional[str] = None, offset: int = 0,
+    tenant_id: Optional[int] = None,
 ) -> tuple:
     """Get check history page and total count. Returns (checks, total)."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
 
-            where = "WHERE brand = ?" if brand else ""
-            params = [brand] if brand else []
+            clauses, params = [], []
+            if brand:
+                clauses.append("brand = ?")
+                params.append(brand)
+            if tenant_id is not None:
+                clauses.append("tenant_id = ?")
+                params.append(tenant_id)
+            where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
             count_cursor = await db.execute(f"SELECT COUNT(*) FROM checks {where}", params)
             count_row = await count_cursor.fetchone()
@@ -448,13 +505,18 @@ async def is_whitelisted(seller: str, brand: str, marketplace: str) -> bool:
         return False
 
 
-async def add_to_whitelist(brand: str, seller_name: str, marketplace: str = "", note: str = "") -> int:
+async def add_to_whitelist(
+    brand: str, seller_name: str, marketplace: str = "", note: str = "",
+    tenant_id: int = 1,
+) -> int:
     """Add entry to whitelist. Returns the new row id, or -1 on failure."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             cursor = await db.execute(
-                "INSERT INTO whitelist (brand, seller_name, marketplace, note) VALUES (?, ?, ?, ?)",
-                (brand.strip(), seller_name.strip(), marketplace.strip(), note.strip())
+                "INSERT INTO whitelist (brand, seller_name, marketplace, note, tenant_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (brand.strip(), seller_name.strip(), marketplace.strip(),
+                 note.strip(), tenant_id)
             )
             await db.commit()
             entry_id = cursor.lastrowid
@@ -466,17 +528,24 @@ async def add_to_whitelist(brand: str, seller_name: str, marketplace: str = "", 
         return -1
 
 
-async def get_whitelist(brand: Optional[str] = None) -> List[Dict[str, Any]]:
+async def get_whitelist(
+    brand: Optional[str] = None, tenant_id: Optional[int] = None
+) -> List[Dict[str, Any]]:
     """Get whitelist entries."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
 
-            query = "SELECT * FROM whitelist"
-            params = []
+            clauses, params = [], []
             if brand:
-                query += " WHERE brand = ?"
+                clauses.append("brand = ?")
                 params.append(brand)
+            if tenant_id is not None:
+                clauses.append("tenant_id = ?")
+                params.append(tenant_id)
+            query = "SELECT * FROM whitelist"
+            if clauses:
+                query += " WHERE " + " AND ".join(clauses)
             query += " ORDER BY added_at DESC"
 
             cursor = await db.execute(query, params)
@@ -493,11 +562,17 @@ async def get_whitelist(brand: Optional[str] = None) -> List[Dict[str, Any]]:
         return []
 
 
-async def delete_from_whitelist(entry_id: int) -> bool:
-    """Delete entry from whitelist."""
+async def delete_from_whitelist(entry_id: int, tenant_id: Optional[int] = None) -> bool:
+    """Delete entry from whitelist (tenant-scoped when tenant_id given)."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            cursor = await db.execute("DELETE FROM whitelist WHERE id = ?", (entry_id,))
+            if tenant_id is not None:
+                cursor = await db.execute(
+                    "DELETE FROM whitelist WHERE id = ? AND tenant_id = ?",
+                    (entry_id, tenant_id),
+                )
+            else:
+                cursor = await db.execute("DELETE FROM whitelist WHERE id = ?", (entry_id,))
             await db.commit()
 
             if cursor.rowcount > 0:
@@ -510,36 +585,26 @@ async def delete_from_whitelist(entry_id: int) -> bool:
         return False
 
 
-async def get_stats() -> Dict[str, int]:
-    """Get statistics from database."""
+async def get_stats(tenant_id: Optional[int] = None) -> Dict[str, int]:
+    """Get statistics from database (tenant-scoped when tenant_id given)."""
+    scope = " AND tenant_id = ?" if tenant_id is not None else ""
+    base_params: tuple = (tenant_id,) if tenant_id is not None else ()
     try:
         async with aiosqlite.connect(DB_PATH) as db:
-            # Total checks
-            cursor = await db.execute("SELECT COUNT(*) FROM checks")
-            row = await cursor.fetchone()
-            total = row[0] if row else 0
-
-            # Fakes
-            cursor = await db.execute("SELECT COUNT(*) FROM checks WHERE verdict = 'ПОДДЕЛКА'")
-            row = await cursor.fetchone()
-            fakes = row[0] if row else 0
-
-            # Originals
-            cursor = await db.execute("SELECT COUNT(*) FROM checks WHERE verdict = 'ОРИГИНАЛ'")
-            row = await cursor.fetchone()
-            originals = row[0] if row else 0
-
-            # Suspicious
-            cursor = await db.execute("SELECT COUNT(*) FROM checks WHERE verdict = 'ПОДОЗРИТЕЛЬНО'")
-            row = await cursor.fetchone()
-            suspicious = row[0] if row else 0
-
-            return {
-                "total": total,
-                "fakes": fakes,
-                "originals": originals,
-                "suspicious": suspicious
-            }
+            counts: Dict[str, int] = {}
+            for name, verdict_sql in (
+                ("total", "1=1"),
+                ("fakes", "verdict = 'ПОДДЕЛКА'"),
+                ("originals", "verdict = 'ОРИГИНАЛ'"),
+                ("suspicious", "verdict = 'ПОДОЗРИТЕЛЬНО'"),
+            ):
+                cursor = await db.execute(
+                    f"SELECT COUNT(*) FROM checks WHERE {verdict_sql}{scope}",
+                    base_params,
+                )
+                row = await cursor.fetchone()
+                counts[name] = row[0] if row else 0
+            return counts
 
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")
@@ -549,13 +614,16 @@ async def get_stats() -> Dict[str, int]:
 # --- batch_tasks persistence -------------------------------------------------
 
 
-async def create_batch_task(task_id: str, total: int) -> None:
+async def create_batch_task(
+    task_id: str, total: int, tenant_id: int = 1
+) -> None:
     """Register a new batch task."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                "INSERT INTO batch_tasks (id, total, done, status) VALUES (?, ?, 0, 'processing')",
-                (task_id, total)
+                "INSERT INTO batch_tasks (id, total, done, status, tenant_id) "
+                "VALUES (?, ?, 0, 'processing', ?)",
+                (task_id, total, tenant_id)
             )
             await db.commit()
     except Exception as e:
@@ -872,7 +940,8 @@ async def find_similar_suspect_hash(
 
 
 async def find_similar_images(
-    phash: str, max_distance: int = 8, limit: int = 50
+    phash: str, max_distance: int = 8, limit: int = 50,
+    tenant_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Reverse image search across ALL stored hashes (both source types).
 
@@ -904,6 +973,38 @@ async def find_similar_images(
     return matches[:limit]
 
 
+async def find_similar_images_tenant(
+    phash: str, tenant_id: Optional[int], max_distance: int = 8, limit: int = 50
+) -> List[Dict[str, Any]]:
+    """Tenant-scoped variant: only hashes/checks belonging to the tenant."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT h.id, h.phash, h.source_type, h.verdict, h.confidence, "
+                "h.related_check_id, c.url, c.brand, c.marketplace, c.checked_at "
+                "FROM image_hashes h LEFT JOIN checks c ON c.id = h.related_check_id "
+                "WHERE h.tenant_id = ?",
+                (tenant_id,),
+            )
+            rows = await cursor.fetchall()
+    except Exception as e:
+        logger.error(f"Reverse image search failed: {e}")
+        return []
+
+    from forensics.phash import hamming_distance
+
+    matches = []
+    for row in rows:
+        distance = hamming_distance(phash, row["phash"])
+        if distance <= max_distance:
+            item = dict(row)
+            item["hamming_distance"] = distance
+            matches.append(item)
+    matches.sort(key=lambda m: m["hamming_distance"])
+    return matches[:limit]
+
+
 # --- brand watches (Block C.1) ----------------------------------------------------
 
 
@@ -914,6 +1015,7 @@ async def create_brand_watch(
     cron_schedule: str,
     digest_interval_hours: int,
     reference_images_json: str,
+    tenant_id: int = 1,
 ) -> int:
     """Create a brand watch. Returns its id (-1 on failure)."""
     try:
@@ -921,10 +1023,10 @@ async def create_brand_watch(
             cursor = await db.execute(
                 """INSERT INTO brand_watches
                    (brand_name, keywords, marketplaces, cron_schedule,
-                    digest_interval_hours, reference_images)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                    digest_interval_hours, reference_images, tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (brand_name, keywords_csv, marketplaces_csv, cron_schedule,
-                 digest_interval_hours, reference_images_json),
+                 digest_interval_hours, reference_images_json, tenant_id),
             )
             await db.commit()
             row = await db.execute("SELECT last_insert_rowid()")
@@ -949,14 +1051,23 @@ async def get_brand_watch(watch_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def get_brand_watches(active_only: bool = True) -> List[Dict[str, Any]]:
+async def get_brand_watches(
+    active_only: bool = True, tenant_id: Optional[int] = None
+) -> List[Dict[str, Any]]:
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             query = "SELECT * FROM brand_watches"
+            clauses = []
+            params: List[Any] = []
             if active_only:
-                query += " WHERE is_active = 1"
-            cursor = await db.execute(query)
+                clauses.append("is_active = 1")
+            if tenant_id is not None:
+                clauses.append("tenant_id = ?")
+                params.append(tenant_id)
+            if clauses:
+                query += " WHERE " + " AND ".join(clauses)
+            cursor = await db.execute(query, params)
             return [dict(r) for r in await cursor.fetchall()]
     except Exception as e:
         logger.error(f"Failed to list brand watches: {e}")
@@ -1175,7 +1286,10 @@ async def get_check_row(check_id: int) -> Optional[Dict[str, Any]]:
 
 
 async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None) -> int:
-    """Create (or return existing) case for a check. Returns case id."""
+    """Create (or return existing) case for a check. Returns case id.
+
+    tenant_id is inherited from the underlying check row.
+    """
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
@@ -1186,9 +1300,10 @@ async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None)
             if existing:
                 return existing["id"]
 
-            check = None
-            c = await db.execute("SELECT url, brand, marketplace, seller, verdict "
-                                 "FROM checks WHERE id = ?", (check_id,))
+            c = await db.execute(
+                "SELECT url, brand, marketplace, seller, verdict, tenant_id "
+                "FROM checks WHERE id = ?", (check_id,),
+            )
             check = await c.fetchone()
             if not check:
                 return -1
@@ -1201,11 +1316,12 @@ async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None)
             if sla_hours:
                 sla_clause = ", sla_deadline = datetime('now', ?)"
                 params.append(f"+{sla_hours} hours")
+            params.append(check["tenant_id"] or 1)
 
             cursor = await db.execute(
                 f"""INSERT INTO cases (check_id, url, brand, marketplace, seller,
-                       verdict{', sla_deadline' if sla_hours else ''})
-                   VALUES (?, ?, ?, ?, ?, ?{', ?' if sla_hours else ''})""",
+                       verdict{', sla_deadline' if sla_hours else ''}, tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?{', ?' if sla_hours else ''}, ?)""",
                 params,
             )
             await db.commit()
@@ -1256,6 +1372,7 @@ async def list_cases(
     brand: Optional[str] = None,
     seller: Optional[str] = None,
     limit: int = 100,
+    tenant_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     query = "SELECT * FROM cases WHERE 1=1"
     params: List[Any] = []
@@ -1268,6 +1385,9 @@ async def list_cases(
     if seller:
         query += " AND seller LIKE ?"
         params.append(f"%{seller}%")
+    if tenant_id is not None:
+        query += " AND tenant_id = ?"
+        params.append(tenant_id)
     query += " ORDER BY created_at DESC LIMIT ?"
     params.append(limit)
     try:
@@ -1469,6 +1589,198 @@ async def get_price_history(url: str, limit: int = 20) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Failed to fetch price history for {url}: {e}")
         return []
+
+
+# --- multi-tenancy (Block F) --------------------------------------------------------
+
+
+async def ensure_default_tenant() -> int:
+    """Create the 'Default' tenant (id=1) if missing. Returns its id.
+
+    The default tenant gets generous limits so open-mode local deployments
+    (frontend/dev/tests without API keys) never hit plan quotas.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute("SELECT id FROM tenants WHERE id = 1")
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+            await db.execute(
+                """INSERT INTO tenants (id, name, plan, max_checks_per_month,
+                       max_watches, max_users)
+                   VALUES (1, 'Default', 'business', 20000, 50, 50)"""
+            )
+            await db.commit()
+            logger.info("Seeded default tenant #1 (business limits)")
+            return 1
+    except Exception as e:
+        logger.error(f"Failed to ensure default tenant: {e}")
+        return 1
+
+
+async def get_tenant(tenant_id: int) -> Optional[Dict[str, Any]]:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,))
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to get tenant {tenant_id}: {e}")
+        return None
+
+
+async def update_tenant_plan(
+    tenant_id: int,
+    plan: Optional[str] = None,
+    max_checks_per_month: Optional[int] = None,
+    max_watches: Optional[int] = None,
+    max_users: Optional[int] = None,
+    is_active: Optional[bool] = None,
+    payment_provider: Optional[str] = None,
+    external_sub_id: Optional[str] = None,
+) -> bool:
+    sets, params = [], []
+    for column, value in (
+        ("plan", plan),
+        ("max_checks_per_month", max_checks_per_month),
+        ("max_watches", max_watches),
+        ("max_users", max_users),
+        ("is_active", int(is_active) if is_active is not None else None),
+        ("payment_provider", payment_provider),
+        ("external_sub_id", external_sub_id),
+    ):
+        if value is not None:
+            sets.append(f"{column} = ?")
+            params.append(value)
+    if not sets:
+        return True
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                f"UPDATE tenants SET {', '.join(sets)} WHERE id = ?",
+                [*params, tenant_id],
+            )
+            await db.commit()
+            rowcount = cursor.rowcount
+            logger.info(f"update_tenant_plan id={tenant_id} rowcount={rowcount} sets={sets}")
+            return bool(rowcount)
+    except Exception as e:
+        logger.error(f"Failed to update tenant {tenant_id}: {e}")
+        return False
+
+
+async def create_api_key(tenant_id: int, key_hash: str, name: str, role: str) -> int:
+    """Returns 1 when inserted, 0 when the hash already exists."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO api_keys (tenant_id, key_hash, name, role) "
+                "VALUES (?, ?, ?, ?)",
+                (tenant_id, key_hash, name, role),
+            )
+            await db.commit()
+            return cursor.rowcount or 0
+    except Exception as e:
+        logger.error(f"Failed to create api key: {e}")
+        return -1
+
+
+async def lookup_api_key(key_hash: str) -> Optional[Dict[str, Any]]:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM api_keys WHERE key_hash = ? AND is_active = 1",
+                (key_hash,),
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to lookup api key: {e}")
+        return None
+
+
+async def list_api_keys(tenant_id: int) -> List[Dict[str, Any]]:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT id, name, role, is_active, last_used_at, created_at "
+                "FROM api_keys WHERE tenant_id = ?",
+                (tenant_id,),
+            )
+            return [dict(r) for r in await cursor.fetchall()]
+    except Exception as e:
+        logger.error(f"Failed to list api keys: {e}")
+        return []
+
+
+async def deactivate_api_key(tenant_id: int, key_id: int) -> bool:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "UPDATE api_keys SET is_active = 0 WHERE id = ? AND tenant_id = ?",
+                (key_id, tenant_id),
+            )
+            await db.commit()
+            return bool(cursor.rowcount)
+    except Exception as e:
+        logger.error(f"Failed to deactivate api key {key_id}: {e}")
+        return False
+
+
+async def touch_api_key(key_id: int) -> None:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (key_id,),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.debug(f"Failed to touch api key {key_id}: {e}")
+
+
+async def count_api_keys(tenant_id: int) -> int:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM api_keys WHERE tenant_id = ? AND is_active = 1",
+                (tenant_id,),
+            )
+            return (await cursor.fetchone())[0]
+    except Exception as e:
+        logger.error(f"Failed to count api keys: {e}")
+        return 0
+
+
+async def count_checks_this_month(tenant_id: int) -> int:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM checks WHERE tenant_id = ? "
+                "AND checked_at >= datetime('now', 'start of month')",
+                (tenant_id,),
+            )
+            return (await cursor.fetchone())[0]
+    except Exception as e:
+        logger.error(f"Failed to count monthly checks: {e}")
+        return 0
+
+
+async def count_tenant_watches(tenant_id: int) -> int:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM brand_watches WHERE tenant_id = ? AND is_active = 1",
+                (tenant_id,),
+            )
+            return (await cursor.fetchone())[0]
+    except Exception as e:
+        logger.error(f"Failed to count watches: {e}")
+        return 0
 
 
 

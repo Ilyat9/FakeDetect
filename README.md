@@ -178,6 +178,60 @@ CI (GitHub Actions) прогоняет тесты и линтер на кажд�
   - История проверок в SQLite
   - Whitelist для исключённых брендов
 
+## 🏢 Мульти-тенантность, роли и биллинг (Block F)
+
+### Тенанты и изоляция (F.1)
+Каждая сущность (checks, whitelist, brands, batch_tasks, brand_watches,
+discovery_listings, image_hashes, cases) несёт `tenant_id`; все списочные запросы
+фильтруются по нему на уровне SQL. Компромисс изоляции зафиксирован
+в COMPROMISES.md (F-C1: фильтрация в запросах; Row-Level Security — после
+миграции на Postgres).
+
+### Аутентификация и роли (F.2)
+- Ключи: `X-API-Key` → SHA-256 → таблица `api_keys` (per-tenant, роль, active).
+- Легаси-мастер-ключ (`API_SECRET_KEY`) продолжает работать = owner Default-тенанта.
+- **Open mode**: если `API_SECRET_KEY` не задан — весь трафик мапится на Default
+  tenant с правами owner (локальная разработка/фронтенд/тесты без ключей).
+- Роли: `owner > admin > analyst > viewer`, плюс спец-роль `legal`
+  (только статусы кейсов + evidence-пакеты; без сырых LLM-ответов и конфигурации).
+
+| Действие | Минимальная роль |
+|---|---|
+| Чтение history/stats/cases/evidence-pdf/complaint | viewer (+legal для кейсов) |
+| Запуск /analyze, /analyze-deep, /batch, reverse search | analyst |
+| Переходы статусов, комментарии, assign, bulk | analyst |
+| Whitelist write, brand watches CRUD/run-now, /cases/overdue | admin |
+| Управление API-ключами, биллинг-план | owner |
+
+### Лимиты тарифов (F.3)
+`tenants.max_checks_per_month / max_watches / max_users`. При превышении —
+**402 Payment Required** с телом `{error, limit, plan, used, max, upgrade_hint}`.
+Проверка квоты стоит до дорогого LLM-вызова; кэш-реплеи (идемпотентность) квоту
+не расходуют.
+
+### Биллинг (F.4)
+- `POST /api/v1/billing/webhook/stripe` — проверка HMAC подписи `Stripe-Signature`
+  (`BILLING_STRIPE_WEBHOOK_SECRET`, fail-closed) + анти-replay окно 5 минут;
+- `POST /api/v1/billing/webhook/yookassa` — общий секрет в `X-Yookassa-Secret`;
+- события (нормализованный контракт): `subscription_activated {plan}` /
+  `subscription_cancelled` → применение лимитов плана / деактивация тенанта;
+- `POST /api/v1/billing/plans/{tenant_id}` — ручная смена плана (owner своего
+  тенанта). Планы: free 100 проверок/2 watch/3 юзера · pro 2000/10/10 ·
+  business 20000/50/50.
+
+### Партнёрский REST API (F.5)
+Отдельный контур `/api/v1/partner/*`: только по ключам (open-mode НЕ действует),
+строгий per-key rate limit (`PARTNER_RATE_LIMIT_PER_MIN`, по умолчанию 30/мин → 429),
+минимальная поверхность:
+
+```
+POST /api/v1/partner/checks          анализ пары изображений (квотируемый)
+GET  /api/v1/partner/checks/{rid}    вердикт по request_id (tenant-scoped)
+GET  /api/v1/partner/stats           статистика + использование квоты
+```
+
+Swagger/OpenAPI — стандартный `/docs` FastAPI.
+
 ## ⚖️ Evidence Package и Workflow кейсов (Block D)
 
 ### Кейсы и статус-машина (D.3)

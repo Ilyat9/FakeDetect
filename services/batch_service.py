@@ -24,6 +24,7 @@ async def run_batch_task(
     df: pd.DataFrame,
     reference_bytes: bytes,
     provider_name: str,
+    tenant_id: int = 1,
 ):
     """Background batch worker. Persists progress in DB, writes xlsx report at the end."""
     from batch_processor import BatchProcessor
@@ -59,7 +60,8 @@ async def run_batch_task(
                         "marketplace": row.get('marketplace', ''),
                         "price_original": row.get('price_original', 0),
                         "price_suspect": row.get('price_suspect', 0),
-                        "seller": row.get('seller', '')
+                        "seller": row.get('seller', ''),
+                        "tenant_id": tenant_id,
                     }
                     await save_check(result_with_meta)
 

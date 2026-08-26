@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # --- Block D: evidence & workflow -------------------------------------------
     evidence_screenshots_enabled: bool = True   # best-effort page screenshots
 
+    # --- Block F: multi-tenancy & billing ---------------------------------------
+    billing_stripe_webhook_secret: Optional[SecretStr] = None   # whsec_...
+    billing_yookassa_webhook_secret: Optional[SecretStr] = None
+    partner_rate_limit_per_min: int = 30
+
     def composite_weights(self) -> Dict[str, float]:
         return {
             "w_llm_confidence": self.w_llm_confidence,

@@ -10,11 +10,10 @@ import base64  # noqa: F401 (kept for future artifact endpoints)
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from core.security import verify_api_key
 from database import (
     add_case_comment,
     assign_case,
@@ -27,11 +26,12 @@ from database import (
     list_cases,
     transition_case,
 )
+from services import tenancy
 from services.evidence_pdf import generate_evidence_pdf
 from services.evidence_store import get_manifest, load_artifact
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["cases"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(tags=["cases"])
 
 
 class TransitionRequest(BaseModel):
@@ -56,30 +56,41 @@ class AssignRequest(BaseModel):
     assignee: str = Field(..., max_length=100)
 
 
+def _ensure_tenant_case(case: dict, ctx) -> None:
+    """404 (not 403!) to avoid leaking other tenants' case ids."""
+    if not case or case.get("tenant_id") != ctx.tenant_id:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+
 @router.get("/cases")
 async def list_cases_endpoint(
+    request: Request,
     status: str = None,
     brand: str = None,
     seller: str = None,
     limit: int = 100,
 ):
+    ctx = await tenancy.require_ctx(request, min_role="viewer", allow_legal=True)
     cases = await list_cases(status=status, brand=brand, seller=seller,
-                             limit=min(limit, 500))
+                             limit=min(limit, 500), tenant_id=ctx.tenant_id)
     return JSONResponse(content={"cases": cases, "total": len(cases)})
 
 
 @router.get("/cases/overdue")
-async def overdue_cases():
+async def overdue_cases(request: Request):
     """Cases whose SLA deadline passed (escalation dashboard)."""
-    overdue = await get_overdue_cases()
+    ctx = await tenancy.require_ctx(request, min_role="admin")
+    overdue = [
+        c for c in await get_overdue_cases() if c["tenant_id"] == ctx.tenant_id
+    ]
     return JSONResponse(content={"overdue": overdue, "total": len(overdue)})
 
 
 @router.get("/cases/{case_id}")
-async def get_case_endpoint(case_id: int):
+async def get_case_endpoint(request: Request, case_id: int):
+    ctx = await tenancy.require_ctx(request, min_role="viewer", allow_legal=True)
     case = await get_case(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+    _ensure_tenant_case(case, ctx)
     return JSONResponse(content={
         "case": case,
         "history": await get_case_history(case_id),
@@ -88,7 +99,12 @@ async def get_case_endpoint(case_id: int):
 
 
 @router.post("/cases/{case_id}/transition")
-async def transition_case_endpoint(case_id: int, body: TransitionRequest):
+async def transition_case_endpoint(
+    request: Request, case_id: int, body: TransitionRequest
+):
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
+    case = await get_case(case_id)
+    _ensure_tenant_case(case, ctx)
     ok, result = await transition_case(
         case_id, body.to_status, body.changed_by, body.comment or None
     )
@@ -98,10 +114,13 @@ async def transition_case_endpoint(case_id: int, body: TransitionRequest):
 
 
 @router.post("/cases/bulk-transition")
-async def bulk_transition(body: BulkTransitionRequest):
+async def bulk_transition(request: Request, body: BulkTransitionRequest):
     """Mass status change, e.g. all cases of one seller → COMPLAINT_FILED."""
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
     results = {"transitioned": [], "failed": []}
     for cid in body.case_ids:
+        case = await get_case(cid)
+        _ensure_tenant_case(case, ctx)
         ok, result = await transition_case(
             cid, body.to_status, body.changed_by, body.comment or None
         )
@@ -116,37 +135,45 @@ async def bulk_transition(body: BulkTransitionRequest):
 
 
 @router.post("/cases/{case_id}/assign")
-async def assign_case_endpoint(case_id: int, body: AssignRequest):
-    if not await get_case(case_id):
-        raise HTTPException(status_code=404, detail="Case not found")
+async def assign_case_endpoint(request: Request, case_id: int, body: AssignRequest):
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
+    case = await get_case(case_id)
+    _ensure_tenant_case(case, ctx)
     await assign_case(case_id, body.assignee)
     return JSONResponse(content={"status": "assigned", "assignee": body.assignee})
 
 
 @router.post("/cases/{case_id}/comments")
-async def add_comment_endpoint(case_id: int, body: CommentRequest):
-    if not await get_case(case_id):
-        raise HTTPException(status_code=404, detail="Case not found")
-    comment_id = await add_case_comment(case_id, body.author, body.text)
+async def add_comment_endpoint(request: Request, case_id: int, body: CommentRequest):
+    ctx = await tenancy.require_ctx(request, min_role="analyst")
+    case = await get_case(case_id)
+    _ensure_tenant_case(case, ctx)
+    comment_id = await add_case_comment(case_id, body.author or ctx.role, body.text)
     return JSONResponse(content={"status": "added", "id": comment_id})
 
 
 @router.get("/cases/{case_id}/comments")
-async def comments_endpoint(case_id: int):
+async def comments_endpoint(request: Request, case_id: int):
+    ctx = await tenancy.require_ctx(request, min_role="viewer", allow_legal=True)
+    case = await get_case(case_id)
+    _ensure_tenant_case(case, ctx)
     return JSONResponse(content={"comments": await get_case_comments(case_id)})
 
 
 @router.get("/cases/{case_id}/history")
-async def history_endpoint(case_id: int):
+async def history_endpoint(request: Request, case_id: int):
+    ctx = await tenancy.require_ctx(request, min_role="viewer", allow_legal=True)
+    case = await get_case(case_id)
+    _ensure_tenant_case(case, ctx)
     return JSONResponse(content={"history": await get_case_history(case_id)})
 
 
 @router.get("/cases/{case_id}/evidence-pdf")
-async def evidence_pdf_endpoint(case_id: int):
-    """Legally-oriented PDF evidence pack for the case."""
+async def evidence_pdf_endpoint(request: Request, case_id: int):
+    """Legally-oriented PDF evidence pack for the case (legal role allowed)."""
+    ctx = await tenancy.require_ctx(request, min_role="viewer", allow_legal=True)
     case = await get_case(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+    _ensure_tenant_case(case, ctx)
 
     check = await get_check_row(case["check_id"])
     if not check:
@@ -179,13 +206,15 @@ async def evidence_pdf_endpoint(case_id: int):
 
 
 @router.get("/cases/{case_id}/complaint")
-async def complaint_endpoint(case_id: int, marketplace: str = None):
+async def complaint_endpoint(
+    request: Request, case_id: int, marketplace: str = None
+):
     """Ready-to-copy complaint text for the marketplace complaint form (D.2)."""
     from services.complaints import render_complaint
 
+    ctx = await tenancy.require_ctx(request, min_role="viewer", allow_legal=True)
     case = await get_case(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+    _ensure_tenant_case(case, ctx)
     check = await get_check_row(case["check_id"]) or {}
 
     mp = marketplace or case.get("marketplace") or ""

@@ -1,5 +1,48 @@
 # Changelog
 
+## [3.5.0] — 2026-08-26 — Block F: мульти-тенантность, роли, биллинг, партнёрский API
+
+### F.1 Тенанты и изоляция
+- Таблица `tenants` (план, лимиты, статус подписки) + `tenant_id` во всех основных
+  таблицах (миграция №4: checks, whitelist, brands, batch_tasks, brand_watches,
+  discovery_listings, image_hashes, cases) с индексами.
+- Изоляция на уровне SQL-запросов во всех списочных/читающих функциях; кейсы
+  наследуют тенант из проверок; watch'и и листинги скоупятся по владельцу.
+
+### F.2 Роли
+- `api_keys` (SHA-256 хэши, роли owner/admin/analyst/viewer + спец-роль legal).
+- `services/tenancy.py::require_ctx()` — единая точка авторизации: роль-флор,
+  legal только для кейсов/evidence, open mode без API_SECRET_KEY (Default tenant,
+  owner), легаси-мастер-ключ = owner Default.
+- Роутеры переведены на контекстную авторизацию (data, analysis, batch, watches,
+  cases); чужие объекты возвращают 404 (без утечки существования).
+
+### F.3 Лимиты тарифов
+- Проверка квоты до LLM-вызова: `/analyze` (+deep), `/batch` (сразу N строк),
+  создание watch'ей, выпуск ключей. Превышение → **402** c
+  `{error, limit, plan, used, max, upgrade_hint}`. Кэш-реплеи бесплатны.
+
+### F.4 Биллинг
+- `POST /api/v1/billing/webhook/stripe|yookassa`: HMAC-верификация подписи
+  (fail-closed), события subscription_activated/cancelled → применение лимитов
+  плана (free/pro/business) или деактивация тенанта.
+- `POST /api/v1/billing/plans/{tenant_id}` — ручная смена плана (owner).
+
+### F.5 Партнёрский REST API
+- `/api/v1/partner/checks`, `/checks/{rid}`, `/stats` — строгая ключ-авторизация,
+  per-key rate limit (`PARTNER_RATE_LIMIT_PER_MIN`, 429 + Retry-After),
+  tenant-scoped ответы, OpenAPI через /docs.
+
+### Инфраструктура
+- Startup: bootstrap дефолтного тенанта ('business'-лимиты для open mode)
+  + сид легаси-мастер-ключа в api_keys.
+
+### Тесты
+- +7 тестов Блока F: изоляция двух тенантов (history/cases), отказ невалидного
+  ключа, role-gates (viewer/legal/analyst матрица), 402 при исчерпании квоты
+  с деталями, партнёрский поток auth+poll+stats, 429 rate-limit, Stripe webhook
+  (неверная подпись → активация business → отмена деактивирует). Всего 100 passed.
+
 ## [3.4.0] — 2026-08-26 — Block D: Evidence Package и Workflow кейсов
 
 ### D.3 Workflow / статус-машина

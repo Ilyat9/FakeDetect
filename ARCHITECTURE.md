@@ -38,6 +38,7 @@ database.py (SQLite WAL): checks(+prompt_version/hash), whitelist, brands,
 | `brand_watches` | Мониторинг бренда (C.1): ключевые слова, площадки, cron-расписание, эталонные фото (base64 JSON), `next_run_at`/`last_status` | читается scheduler'ом (`services/scheduler_service.py`) |
 | `discovery_listings` | Найденные карточки (C.3): UNIQUE(watch_id, url), TTL-дедупликация по вердикту | создаётся движком скана; источник дайджестов |
 | `cases` / `case_status_history` / `case_comments` | Workflow кейсов (D.3): статус-машина с валидацией переходов, SLA-дедлайны, аудит и комментарии | кейсы авто-создаются из проверок с вердиктом ≠ ОРИГИНАЛ; PDF/жалобы рендерятся из кейса |
+| `tenants` / `api_keys` | Мульти-тенантность (F): планы и лимиты; ключи доступа с ролями (SHA-256, per-tenant) | каждый запрос резолвится через `services/tenancy.py`; данные всех сущностей изолированы по `tenant_id` |
 | `request_cache` | Идемпотентность: вердикт по `request_id` (A.2), TTL `IDEMPOTENCY_TTL_HOURS` | читается до вызова LLM, заполняется после |
 | `retry_queue` | Отложенные анализы при полном отказе провайдеров (A.6) | обрабатывается `services/retry_worker.py`; результат попадает в `request_cache` |
 | `CircuitBreaker` (per provider, in-process) | Размыкание после N подряд ошибок, экспоненциальное окно восстановления, half-open probe | состояние видно в `/health` и метрике `fakedetect_provider_breaker_state` |
