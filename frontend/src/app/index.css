@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens — single source of truth, consumed via Tailwind theme. */
+@layer base {
+  :root {
+    --surface: 255 255 255;
+    --surface-light: 245 244 240;
+    --surface-raised: 255 255 255;
+    --surface-dark: 30 30 32;
+    --ink: 13 13 13;
+    --ink-muted: 136 136 136;
+    --line: 224 221 216;
+  }
+
+  .dark {
+    --surface: 18 18 20;
+    --surface-light: 28 28 30;
+    --surface-raised: 34 34 37;
+    --surface-dark: 10 10 12;
+    --ink: 240 240 242;
+    --ink-muted: 156 156 162;
+    --line: 62 62 66;
+  }
+
+  body {
+    @apply bg-surface font-sans text-ink antialiased;
+  }
+}

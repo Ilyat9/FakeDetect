@@ -1,0 +1,82 @@
+name: Frontend CI
+
+on:
+  push:
+    branches: [main, master]
+    paths: ["frontend/**"]
+  pull_request:
+    paths: ["frontend/**"]
+
+defaults:
+  run:
+    working-directory: frontend
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+
+      - name: Lint (incl. FSD layer boundaries)
+        run: npm run lint
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Unit + component tests (Vitest + RTL + MSW)
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # Spec 3.1: fail when generated types drift from the committed ones.
+      # Requires a reachable backend; skipped when it is not running.
+      - name: API types freshness check
+        run: |
+          if curl -sf http://localhost:8000/openapi.json > /dev/null; then
+            npm run check:api-types
+          else
+            echo "Backend not reachable in CI — skipping api-schema drift check."
+          fi
+
+      # Spec 7.4: bundle size budget — main chunk must stay under 300 kB gzipped.
+      - name: Bundle size budget
+        run: |
+          LIMIT_KB=300
+          MAIN_GZ=$(gzip -c dist/assets/index-*.js | wc -c | awk '{print int($1/1024)}')
+          echo "Main chunk gzipped: ${MAIN_GZ} kB (limit ${LIMIT_KB} kB)"
+          if [ "$MAIN_GZ" -gt "$LIMIT_KB" ]; then
+            echo "::error::Main JS chunk exceeds budget"
+            exit 1
+          fi
+
+  e2e:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E smoke suite
+        run: npx playwright test
