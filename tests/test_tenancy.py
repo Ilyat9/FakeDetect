@@ -47,10 +47,10 @@ def _make_tenant(name, **limits) -> int:
 
     import aiosqlite
 
-    from app.database import DB_PATH
+    from app import database
 
     async def go():
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(database.DB_PATH) as db:
             cursor = await db.execute(
                 """INSERT INTO tenants (name, plan, max_checks_per_month,
                        max_watches, max_users)

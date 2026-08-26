@@ -32,7 +32,10 @@ async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
         get_watch_listings,
     )
 
-    settings.gemini_api_key = SecretStr("k")
+    # monkeypatch, NOT direct assignment: a leaked gemini_api_key made
+    # test_analyze_without_api_key (test_api.py) pass auth setup downstream
+    # and return 202 instead of 500 — order-dependent.
+    monkeypatch.setattr(settings, "gemini_api_key", SecretStr("k"))
 
     # Unique per run: discovery dedupes by URL/SKU in the session-shared DB,
     # so hardcoded ids made this test order-dependent (flake).
@@ -192,9 +195,9 @@ async def test_discovery_scan_is_tenant_scoped(client, monkeypatch):
     # The saved check must also belong to tenant 2 (not default tenant 1).
     import aiosqlite
 
-    from app.database import DB_PATH
+    from app import database
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(database.DB_PATH) as db:
         cur = await db.execute(
             "SELECT tenant_id FROM checks WHERE url LIKE '%424242%'")
         check_tenant = (await cur.fetchone())[0]

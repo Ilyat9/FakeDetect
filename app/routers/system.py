@@ -10,9 +10,10 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from app import database
 from app.core.config import get_api_key_for_provider, get_llm_provider, settings
 from app.core.metrics import render_metrics
-from app.database import DB_PATH, get_queue_item
+from app.database import get_queue_item
 from app.llm_provider import ProviderType
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ router = APIRouter(tags=["system"])
 async def _check_database() -> dict:
     start = time.monotonic()
     try:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with aiosqlite.connect(database.DB_PATH) as db:
             cursor = await db.execute("SELECT 1")
             await cursor.fetchone()
         return {"ok": True, "latency_ms": round((time.monotonic() - start) * 1000, 1)}

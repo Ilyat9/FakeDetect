@@ -8,7 +8,7 @@ from pydantic import SecretStr
 
 from app.core import llm_gateway as gateway
 from app.core.config import settings
-from app.database import DB_PATH
+from app import database
 from tests.test_cases import _make_check, _first_case, fake_llm  # noqa: F401
 
 
@@ -17,7 +17,7 @@ async def test_overdue_detection_and_escalation_once(client, fake_llm, monkeypat
     tag, _rid = _make_check(client)
     cid = _first_case(client, f"CaseBrand-{tag}")["id"]
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(database.DB_PATH) as db:
         await db.execute(
             "UPDATE cases SET sla_deadline = datetime('now', '-1 hour') WHERE id = ?",
             (cid,),
@@ -95,7 +95,7 @@ async def test_original_verdict_does_not_open_case(client, fake_llm, monkeypatch
 
     from app.database import get_case_by_check
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(database.DB_PATH) as db:
         cursor = await db.execute("SELECT MAX(id) FROM checks")
         newest_check_id = (await cursor.fetchone())[0]
     assert await get_case_by_check(newest_check_id) is None

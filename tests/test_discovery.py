@@ -46,12 +46,12 @@ async def test_listing_dedup_ttl_by_verdict(client):
     import aiosqlite
 
     from app.database import (
-        DB_PATH,
         create_brand_watch,
         listing_needs_recheck,
         update_listing_analysis,
         upsert_listing,
     )
+    from app import database as _db  # dynamic DB_PATH (fresh per-test DB)
 
     wid = await create_brand_watch(
         "TTLBrand", "kw1", "WB", "0 7 * * *", 24,
@@ -77,7 +77,7 @@ async def test_listing_dedup_ttl_by_verdict(client):
 
     # Backdate beyond the suspicious TTL (2 days); switching the stored verdict
     # to ПОДОЗРИТЕЛЬНО makes its shorter TTL apply → recheck again.
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with aiosqlite.connect(_db.DB_PATH) as db:
         await db.execute(
             "UPDATE discovery_listings SET last_checked_at = datetime('now', '-3 days'), "
             "verdict = 'ПОДОЗРИТЕЛЬНО' WHERE id = ?",
