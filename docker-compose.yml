@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Persist SQLite outside the container filesystem.
+      DB_PATH: /data/fakedetect.db
+    volumes:
+      - app-data:/data
+    restart: unless-stopped
+
+  # Опционально для прод-нагрузки (multi-worker): раскомментируйте и переключите
+  # слой database.py на SQLAlchemy async + asyncpg (см. README «Миграции»).
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: fakedetect
+  #     POSTGRES_USER: fakedetect
+  #     POSTGRES_PASSWORD: change-me
+  #   volumes:
+  #     - pg-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  app-data:
+  # pg-data:
