@@ -33,17 +33,19 @@
 
 | Дашборд | Вердикт |
 |---|---|
-| ![Дашборд](docs/screenshots/dashboard.png) | ![Вердикт](docs/screenshots/verdict.png) |
+| ![Дашборд: KPI-карточки, динамика проверок, топ нарушителей](docs/screenshots/dashboard.png) | ![Вердикт с разбивкой факторов](docs/screenshots/verdict.png) |
 | **Канбан кейсов** | **Brand watch** |
-| ![Кейсы](docs/screenshots/cases.png) | ![Watches](docs/screenshots/watches.png) |
+| ![Кейсы: статусы, SLA, drag&drop](docs/screenshots/cases.png) | ![Автономный мониторинг бренда](docs/screenshots/watches.png) |
 
 <details>
-<summary>Как снять скриншоты</summary>
+<summary>Как переснять скриншоты</summary>
+
+Скриншоты генерируются скриптом с мок-данными (детерминированно, без реальных LLM-вызовов):
 
 ```bash
-docker compose up --build   # frontend на http://localhost:8080
-# страницы: / -> dashboard.png · /analyze -> verdict.png ·
-#           /cases -> cases.png (вид «Канбан») · /watches -> watches.png
+cd frontend
+npm run dev &                          # или SHOT_BASE_URL на уже запущенный dev-сервер
+node scripts/screenshots.mjs           # пишет в docs/screenshots/
 ```
 
 </details>
@@ -96,33 +98,80 @@ FakeDetect/
 └── docker-compose.yml        # backend + frontend (nginx, /api same-origin)
 ```
 
-Ключевые решения (почему свой circuit breaker, нормализованные вебхуки, explainable scoring)
-— [docs/architecture-decisions.md](docs/architecture-decisions.md).
-Осознанные упрощения — [docs/COMPROMISES.md](docs/COMPROMISES.md).
+## Как это работает
 
-## Возможности
+**1. Детекция.** Итоговый вердикт — взвешенная сумма нормированных сигналов «подлинности» (0–100),
+каждый из которых виден в API и в UI («почему такой вердикт»):
 
-**Детекция.** Композитный вердикт из нормированных сигналов: LLM-confidence (0.45), pHash (0.25),
-ELA (0.15), price ratio (0.10), EXIF (0.05). Пограничная уверенность (40–70%) запускает второго
-провайдера; при расхождении мнений вердикт уходит человеку, оба ответа сохраняются для аудита.
-Каждый сигнал виден в API и в UI («почему такой вердикт») — решение объяснимо, а не «чёрный ящик».
+| Сигнал | Вес | Что ловит |
+|---|---|---|
+| `llm_confidence` (Gemini / Grok Vision) | 0.45 | визуальное расхождение с эталоном |
+| `phash_similarity` | 0.25 | копии-переклейки логотипа |
+| ELA | 0.15 | ретушь и склейку изображений |
+| `price_ratio` | 0.10 | аномально низкую цену |
+| EXIF-флаги | 0.05 | следы Photoshop/GIMP, удалённые метаданные |
 
-**Автономный мониторинг.** Brand watches по cron-расписанию ищут новые карточки по бренду,
-дедуплицируют по URL/SKU и прогоняют через детекцию; дайджесты в Telegram.
+Пограничная уверенность (40–70%) автоматически запускает второго провайдера. Мнения совпали —
+уверенность усиливается; разошлись — вердикт уходит человеку со статусом «требует ручной проверки»,
+оба сырых ответа сохраняются для аудита.
 
-**Кейсы.** Проверка с вердиктом ≠ «оригинал» автоматически открывает кейс:
-`DETECTED → UNDER_REVIEW → CONFIRMED_FAKE/FALSE_POSITIVE → COMPLAINT_FILED → LISTING_REMOVED → CLOSED`.
-Валидация переходов, аудит-журнал, SLA-таймеры с Telegram-эскалацией, bulk-операции,
-evidence-PDF (скриншоты, форензика, история цен, chain of custody) и текст жалобы под площадку.
+**2. Автономный мониторинг.** Brand watch по cron-расписанию ищет новые карточки бренда на выбранных
+площадках, дедуплицирует по URL/SKU и прогоняет находки через детекцию. Настройка — без ручного cron:
+в UI выбирается частота, на бэкенде она превращается в расписание. Дайджесты — в Telegram.
 
-**Надёжность.** Circuit breaker с автопереключением gemini↔grok, идемпотентность по `X-Request-ID`,
-единый timeout budget, retry-queue на случай отказа всех провайдеров, token bucket,
-JSON-логи + `/metrics` (Prometheus). Цели SLO и конфигурация — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**3. Кейсы.** Проверка с вердиктом ≠ «оригинал» автоматически открывает кейс (один check = один case):
 
-**Мульти-тенантность.** Изоляция по `tenant_id` на уровне SQL, роли
-`owner > admin > analyst > viewer` (+ `legal` — только кейсы и evidence), квоты тарифов
-free/pro/business (402 при превышении), биллинг-вебхуки Stripe/ЮKassa с проверкой подписи,
-партнёрский контур `/api/v1/partner/*` с per-key rate limit.
+```
+DETECTED → UNDER_REVIEW → CONFIRMED_FAKE / FALSE_POSITIVE →
+COMPLAINT_FILED → LISTING_REMOVED → CLOSED
+```
+
+Недопустимые переходы отклоняются с подсказкой, каждый шаг пишется в журнал аудита (кто/когда/комментарий).
+На каждый статус — SLA-лимит (DETECTED 24ч, UNDER_REVIEW 72ч…); просрочки эскалируются в Telegram.
+Evidence-PDF собирается на момент обнаружения: скриншот карточки, side-by-side сравнение, форензика,
+история цен, цепочка хранения артефактов. Плюс готовый текст жалобы под конкретную площадку.
+
+**4. Надёжность.**
+
+| Механизм | Что даёт |
+|---|---|
+| Circuit breaker | 5 ошибок подряд → провайдер исключается, трафик идёт на второй (gemini↔grok) |
+| Идемпотентность | повтор с тем же `X-Request-ID` возвращает кэш — LLM не оплачивается дважды |
+| Retry queue | все провайдеры недоступны → 202 + polling, фоновый воркер доигрывает сам |
+| Timeout budget | весь путь запроса укладывается в SLA, иначе 504 + Retry-After |
+| Token bucket | превентивный троттлинг под квоту API |
+| Observability | JSON-логи с request_id, `/metrics` (Prometheus), детальный `/health` |
+
+**5. Мульти-тенантность и роли.** Изоляция по `tenant_id` на уровне SQL. Ключ `X-API-Key`
+определяет тенант и роль:
+
+| Действие | Минимальная роль |
+|---|---|
+| Чтение history/stats/cases/evidence | viewer (+ `legal` для кейсов) |
+| Запуск анализов, переходы статусов, комментарии | analyst |
+| Whitelist, brand watches, просроченные SLA | admin |
+| API-ключи, план биллинга | owner |
+
+Квоты тарифов (free/pro/business: 100/2000/20000 проверок в месяц) проверяются до дорогого
+LLM-вызова — при превышении 402 с подсказкой об апгрейде. Биллинг-вебхуки Stripe/ЮKassa
+с проверкой подписи и анти-replay. Партнёрский контур `/api/v1/partner/*` — только по ключам,
+per-key rate limit.
+
+## API
+
+Полная схема — `/docs` (Swagger). Основные группы:
+
+| Группа | Эндпоинты |
+|---|---|
+| Анализ | `POST /analyze`, `POST /analyze-deep`, `POST /parse-image` |
+| Батч | `POST /batch`, `GET /batch/{id}`, `GET /batch/{id}/download` |
+| Данные | `GET /history`, `GET /stats`, `GET/POST/DELETE /whitelist` |
+| Кейсы | `GET /cases`, `POST /cases/{id}/transition`, `/bulk-transition`, `/comments`, `/evidence-pdf`, `/complaint` |
+| Мониторинг | `POST/GET/DELETE /watches`, `/watches/{id}/listings`, `/run-now` |
+| Аналитика | `/analytics/timeseries`, `/top-sellers`, `/revenue`, `/timing`, `/summary`, `/export.pdf`, `/export.pptx` |
+| Биллинг | `/billing/webhook/{stripe\|yookassa}`, `/billing/plans/{tenant_id}` |
+| Партнёрский | `/partner/checks`, `/partner/checks/{rid}`, `/partner/stats` |
+| Служебные | `/health`, `/metrics`, `/queue/{request_id}` |
 
 ## Конфигурация
 
@@ -151,9 +200,12 @@ free/pro/business (402 при превышении), биллинг-вебхук
 ## Разработка
 
 ```bash
-pytest -v                          # backend-тесты
-cd frontend && npm test            # frontend-тесты (Vitest + MSW)
-cd frontend && npm run storybook   # дизайн-система на :6006
+pytest -v                                    # backend-тесты
+cd frontend
+npm test                                     # unit/component/contract (Vitest + MSW)
+npm run test:e2e                             # Playwright smoke
+npm run storybook                            # дизайн-система на :6006
+node scripts/screenshots.mjs                 # скриншоты для README (нужен dev-сервер)
 ```
 
 CI на каждый push/PR: backend (pytest + ruff) и frontend (lint, typecheck, тесты, build,
@@ -168,5 +220,4 @@ Storybook, drift-check OpenAPI-типов против живого бэкенд
 ## Лицензия
 
 [MIT](LICENSE)
-
 
