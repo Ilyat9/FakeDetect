@@ -13,6 +13,7 @@ imagehash>=4.3
 apscheduler>=3.10,<4
 reportlab>=4.0
 jinja2>=3.1
+python-pptx>=0.6.23
 openpyxl>=3.1
 aiosqlite>=0.19
 pandas>=2.0

@@ -1783,4 +1783,182 @@ async def count_tenant_watches(tenant_id: int) -> int:
         return 0
 
 
+# --- analytics / dashboard (Block E) -------------------------------------------------
+
+_GRANULARITY_FORMATS = {"day": "%Y-%m-%d", "week": "%Y-%W", "month": "%Y-%m"}
+
+
+def _tenant_clause(tenant_id: Optional[int]) -> tuple:
+    if tenant_id is not None:
+        return "tenant_id = ?", [tenant_id]
+    return "", []
+
+
+async def get_verdict_timeseries(
+    granularity: str = "day", days: int = 30,
+    brand: Optional[str] = None, tenant_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Verdict counts bucketed by day/week/month for the last N days."""
+    fmt = _GRANULARITY_FORMATS.get(granularity)
+    if not fmt:
+        return []
+    clauses = [f"checked_at >= datetime('now', '-{int(days)} days')"]
+    params: List[Any] = []
+    if brand:
+        clauses.append("brand = ?")
+        params.append(brand)
+    t_sql, t_params = _tenant_clause(tenant_id)
+    if t_sql:
+        clauses.append(t_sql)
+        params.extend(t_params)
+
+    where = "WHERE " + " AND ".join(clauses)
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                f"""SELECT strftime('{fmt}', checked_at) AS period,
+                           SUM(CASE WHEN verdict = 'ПОДДЕЛКА' THEN 1 ELSE 0 END) AS fakes,
+                           SUM(CASE WHEN verdict = 'ОРИГИНАЛ' THEN 1 ELSE 0 END) AS originals,
+                           SUM(CASE WHEN verdict = 'ПОДОЗРИТЕЛЬНО' THEN 1 ELSE 0 END) AS suspicious,
+                           COUNT(*) AS total
+                    FROM checks {where}
+                    GROUP BY period ORDER BY period""",
+                params,
+            )
+            rows = [dict(r) for r in await cursor.fetchall()]
+            for r in rows:
+                for k in ("fakes", "originals", "suspicious", "total"):
+                    r[k] = int(r[k] or 0)
+            return rows
+    except Exception as e:
+        logger.error(f"Timeseries query failed: {e}")
+        return []
+
+
+async def get_top_sellers(
+    limit: int = 10, days: Optional[int] = None,
+    tenant_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Top sellers ranked by confirmed violations (drill-down base)."""
+    clauses = ["seller IS NOT NULL", "TRIM(seller) != ''"]
+    params: List[Any] = []
+    if days is not None:
+        clauses.append(f"checked_at >= datetime('now', '-{int(days)} days')")
+    t_sql, t_params = _tenant_clause(tenant_id)
+    if t_sql:
+        clauses.append(t_sql)
+        params.extend(t_params)
+
+    where = "WHERE " + " AND ".join(clauses)
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                f"""SELECT seller,
+                           COUNT(*) AS total_checks,
+                           SUM(CASE WHEN verdict IN ('ПОДДЕЛКА','ПОДОЗРИТЕЛЬНО')
+                               THEN 1 ELSE 0 END) AS violations,
+                           SUM(CASE WHEN verdict = 'ПОДДЕЛКА'
+                               THEN 1 ELSE 0 END) AS fakes,
+                           CAST(AVG(confidence) AS INTEGER) AS avg_confidence
+                    FROM checks {where}
+                    GROUP BY seller
+                    ORDER BY fakes DESC, violations DESC, total_checks DESC
+                    LIMIT ?""",
+                [*params, limit],
+            )
+            return [dict(r) for r in await cursor.fetchall()]
+    except Exception as e:
+        logger.error(f"Top sellers query failed: {e}")
+        return []
+
+
+async def get_protected_revenue(
+    days: int = 30, brand: Optional[str] = None,
+    tenant_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Confirmed fakes × average original price — an ESTIMATE, not fact."""
+    clauses = ["verdict = 'ПОДДЕЛКА'",
+               f"checked_at >= datetime('now', '-{int(days)} days')"]
+    params: List[Any] = []
+    if brand:
+        clauses.append("brand = ?")
+        params.append(brand)
+    t_sql, t_params = _tenant_clause(tenant_id)
+    if t_sql:
+        clauses.append(t_sql)
+        params.extend(t_params)
+    where = "WHERE " + " AND ".join(clauses)
+
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                f"""SELECT COUNT(*) AS confirmed_fakes,
+                           AVG(CASE WHEN price_original > 0
+                               THEN price_original END) AS avg_original_price
+                    FROM checks {where}""",
+                params,
+            )
+            row = dict(await cursor.fetchone())
+
+        fakes = int(row["confirmed_fakes"] or 0)
+        avg_price = row["avg_original_price"]
+        estimate = round(fakes * float(avg_price)) if avg_price and fakes else None
+        return {
+            "confirmed_fakes": fakes,
+            "avg_original_price": round(float(avg_price)) if avg_price else None,
+            "protected_revenue_estimate": estimate,
+            "disclaimer": (
+                "Оценка, а не точная цифра: подтверждённые подделки × средняя цена "
+                "оригинала за период. Фактическая защищённая выручка зависит от "
+                "конверсии и доли рынка."
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Protected revenue query failed: {e}")
+        return {"confirmed_fakes": 0, "avg_original_price": None,
+                "protected_revenue_estimate": None,
+                "disclaimer": "Недостаточно данных"}
+
+
+async def get_timing_metrics(tenant_id: Optional[int] = None) -> Dict[str, Any]:
+    """Time-to-detection (discovery listings) and time-to-resolution (cases)."""
+    result = {
+        "time_to_detection_days": None,
+        "time_to_resolution_days": None,
+        "note": ("time_to_detection измеряется для карточек, найденных "
+                 "Discovery-мониторингом (от первого появления в выдаче до "
+                 "вердикта); для ручных проверок дата публикации неизвестна."),
+    }
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            t_sql, t_params = _tenant_clause(tenant_id)
+
+            cursor = await db.execute(
+                f"""SELECT AVG(julianday(last_checked_at) - julianday(first_seen_at))
+                    FROM discovery_listings
+                    WHERE last_checked_at IS NOT NULL{t_sql.replace('tenant_id', 'l.tenant_id')}""",
+                t_params,
+            )
+            row = await cursor.fetchone()
+            if row and row[0] is not None:
+                result["time_to_detection_days"] = round(float(row[0]), 2)
+
+            cursor = await db.execute(
+                f"""SELECT AVG(julianday(h.changed_at) - julianday(c.created_at))
+                    FROM cases c JOIN case_status_history h ON h.case_id = c.id
+                    WHERE h.to_status = 'CLOSED'{t_sql.replace('tenant_id', 'c.tenant_id')}""",
+                t_params,
+            )
+            row = await cursor.fetchone()
+            if row and row[0] is not None:
+                result["time_to_resolution_days"] = round(float(row[0]), 2)
+        return result
+    except Exception as e:
+        logger.error(f"Timing metrics query failed: {e}")
+        return result
+
+
 

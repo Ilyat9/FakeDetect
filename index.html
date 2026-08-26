@@ -1026,7 +1026,130 @@
     <button class="mode-tab" id="tab-whitelist" onclick="switchDbTab('whitelist')">
       <span class="mode-label">🏷️ Белые списки</span>
     </button>
+    <button class="mode-tab" id="tab-dashboard" onclick="switchDbTab('dashboard')">
+      <span class="mode-label">📊 Дашборд</span>
+    </button>
   </div>
+</section>
+
+<!-- DASHBOARD TAB (Block E) -->
+<section class="db-section" id="dashboard-tab" style="display:none">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    .dash-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:16px; margin-bottom:24px; }
+    .dash-card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; }
+    .dash-card .v { font-size:26px; font-weight:700; }
+    .dash-card .l { font-size:12px; color:#666; letter-spacing:.5px; }
+    .chart-box { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; margin-bottom:24px; }
+    .dash-toolbar { display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+    .export-btn { padding:10px 18px; border-radius:10px; border:1px solid var(--border);
+                  background:var(--card); cursor:pointer; font-size:13px;
+                  text-decoration:none; color:inherit; }
+    .export-btn:hover { background:#f0f0f0; }
+  </style>
+  <h3>📊 Дашборд защиты бренда</h3>
+
+  <div class="dash-toolbar">
+    <select id="dash-granularity" onchange="loadDashboard()">
+      <option value="day">По дням</option>
+      <option value="week">По неделям</option>
+      <option value="month">По месяцам</option>
+    </select>
+    <select id="dash-days" onchange="loadDashboard()">
+      <option value="7">7 дней</option>
+      <option value="30" selected>30 дней</option>
+      <option value="90">90 дней</option>
+      <option value="365">Год</option>
+    </select>
+    <a class="export-btn" href="/api/v1/analytics/export.pdf">⬇️ PDF для руководства</a>
+    <a class="export-btn" href="/api/v1/analytics/export.pptx">⬇️ PPTX презентация</a>
+    <button class="export-btn" onclick="loadDashboard()">↻ Обновить</button>
+  </div>
+
+  <div class="dash-grid">
+    <div class="dash-card"><div class="v" id="dash-total">—</div><div class="l">ПРОВЕРОК ВСЕГО</div></div>
+    <div class="dash-card"><div class="v" style="color:#c0392b" id="dash-fakes">—</div><div class="l">ПОДДЕЛОК</div></div>
+    <div class="dash-card"><div class="v" style="color:#e67e22" id="dash-suspicious">—</div><div class="l">ПОДОЗРИТЕЛЬНЫХ</div></div>
+    <div class="dash-card"><div class="v" style="color:#27ae60" id="dash-originals">—</div><div class="l">ОРИГИНАЛОВ</div></div>
+    <div class="dash-card"><div class="v" style="color:#2980b9" id="dash-revenue">—</div><div class="l">ЗАЩИЩЁННАЯ ВЫРУЧКА (ОЦЕНКА)</div></div>
+    <div class="dash-card"><div class="v" id="dash-ttd">—</div><div class="l">TIME-TO-DETECTION, ДН.</div></div>
+    <div class="dash-card"><div class="v" id="dash-ttr">—</div><div class="l">TIME-TO-RESOLUTION, ДН.</div></div>
+  </div>
+
+  <div class="chart-box"><canvas id="dash-chart" height="110"></canvas></div>
+
+  <div class="db-table-container">
+    <table class="db-table">
+      <thead><tr><th>Продавец</th><th>Проверок</th><th>Нарушений</th><th>Подделок</th><th>Ср. уверенность</th></tr></thead>
+      <tbody id="dash-sellers-body"></tbody>
+    </table>
+    <div id="dash-empty" class="db-empty" style="display:none">Данных за период нет</div>
+  </div>
+
+  <p style="font-size:11px;color:#888;margin-top:12px" id="dash-disclaimer"></p>
+
+  <script>
+    let _dashChart = null;
+    async function loadDashboard() {
+      try {
+        const gran = document.getElementById('dash-granularity').value;
+        const days = document.getElementById('dash-days').value;
+        const res = await fetch(`${API_URL}/analytics/summary?granularity=${gran}&days=${days}`);
+        if (!res.ok) { showToast('Не удалось загрузить дашборд'); return; }
+        const data = await res.json();
+        const s = data.summary || {};
+
+        document.getElementById('dash-total').textContent = s.total ?? '—';
+        document.getElementById('dash-fakes').textContent = s.fakes ?? '—';
+        document.getElementById('dash-suspicious').textContent = s.suspicious ?? '—';
+        document.getElementById('dash-originals').textContent = s.originals ?? '—';
+
+        const rev = data.protected_revenue || {};
+        const est = rev.protected_revenue_estimate;
+        document.getElementById('dash-revenue').textContent =
+          est != null ? Math.round(est).toLocaleString('ru-RU') + ' ₽' : '—';
+
+        const timing = data.timing || {};
+        document.getElementById('dash-ttd').textContent = timing.time_to_detection_days ?? '—';
+        document.getElementById('dash-ttr').textContent = timing.time_to_resolution_days ?? '—';
+        document.getElementById('dash-disclaimer').textContent = rev.disclaimer || '';
+
+        const pts = data.timeseries || [];
+        const ctx = document.getElementById('dash-chart');
+        if (_dashChart) _dashChart.destroy();
+        _dashChart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: pts.map(p => p.period),
+            datasets: [
+              { label: 'Подделки', data: pts.map(p => p.fakes), backgroundColor: '#c0392b' },
+              { label: 'Подозрительные', data: pts.map(p => p.suspicious), backgroundColor: '#e67e22' },
+              { label: 'Оригиналы', data: pts.map(p => p.originals), backgroundColor: '#27ae60' },
+            ]
+          },
+          options: { responsive: true,
+                     scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } }
+        });
+
+        const body = document.getElementById('dash-sellers-body');
+        body.innerHTML = '';
+        const sellers = data.top_sellers || [];
+        document.getElementById('dash-empty').style.display =
+          sellers.length ? 'none' : 'block';
+        for (const sv of sellers) {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${escapeHtml(sv.seller)}</td><td>${sv.total_checks}</td>` +
+            `<td>${sv.violations}</td><td>${sv.fakes}</td><td>${sv.avg_confidence ?? '—'}%</td>`;
+          body.appendChild(tr);
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('Ошибка загрузки дашборда');
+      }
+    }
+  </script>
+
+
 </section>
 
 <!-- CTA -->
@@ -1092,12 +1215,18 @@
 
     document.getElementById('tab-history').classList.toggle('active', tab === 'history');
     document.getElementById('tab-whitelist').classList.toggle('active', tab === 'whitelist');
+    const dashBtn = document.getElementById('tab-dashboard');
+    if (dashBtn) dashBtn.classList.toggle('active', tab === 'dashboard');
 
     document.getElementById('history-tab').style.display = tab === 'history' ? 'block' : 'none';
     document.getElementById('whitelist-tab').style.display = tab === 'whitelist' ? 'block' : 'none';
+    const dashTab = document.getElementById('dashboard-tab');
+    if (dashTab) dashTab.style.display = tab === 'dashboard' ? 'block' : 'none';
 
     if (tab === 'history') {
       loadHistory();
+    } else if (tab === 'dashboard') {
+      loadDashboard();
     } else {
       loadWhitelist();
     }

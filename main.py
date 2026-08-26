@@ -31,6 +31,7 @@ from routers import (
 from routers.billing import router as billing_router
 from routers.cases import router as cases_router
 from routers.partner import router as partner_router
+from routers.analytics import router as analytics_router
 
 load_dotenv()
 
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(data_router, prefix=API_V1_PREFIX)
     app.include_router(watches_router, prefix=API_V1_PREFIX)
     app.include_router(cases_router, prefix=API_V1_PREFIX)
+    app.include_router(analytics_router, prefix=API_V1_PREFIX)
     app.include_router(partner_router, prefix=API_V1_PREFIX)
     app.include_router(billing_router, prefix=API_V1_PREFIX)
     app.include_router(system_router)              # /health, /metrics, /queue/{id}
