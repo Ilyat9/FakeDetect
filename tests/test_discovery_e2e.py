@@ -3,6 +3,7 @@
 import base64
 import io
 import json
+import uuid
 
 import pytest
 from PIL import Image
@@ -33,11 +34,14 @@ async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
 
     settings.gemini_api_key = SecretStr("k")
 
+    # Unique per run: discovery dedupes by URL/SKU in the session-shared DB,
+    # so hardcoded ids made this test order-dependent (flake).
+    run_id = uuid.uuid4().hex[:8]
     listings = [
-        {"url": "https://www.wildberries.ru/catalog/777/detail.aspx",
-         "sku": "777", "title": "Fake Watch", "price": 1500.0, "seller": "ScamCo"},
-        {"url": "https://www.wildberries.ru/catalog/888/detail.aspx",
-         "sku": "888", "title": "Original Watch", "price": 30000.0, "seller": "AuthStore"},
+        {"url": f"https://www.wildberries.ru/catalog/77{run_id}/detail.aspx",
+         "sku": f"77{run_id}", "title": "Fake Watch", "price": 1500.0, "seller": "ScamCo"},
+        {"url": f"https://www.wildberries.ru/catalog/88{run_id}/detail.aspx",
+         "sku": f"88{run_id}", "title": "Original Watch", "price": 30000.0, "seller": "AuthStore"},
     ]
 
     async def fake_search(marketplace, keyword, limit, browser_page=None):

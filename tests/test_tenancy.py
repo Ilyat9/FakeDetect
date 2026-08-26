@@ -170,3 +170,34 @@ def test_quota_exceeded_returns_402_with_details(client, fake_llm):
     assert body["limit"] == "checks_per_month"
     assert body["max"] == 0
     assert "upgrade_hint" in body
+
+
+# --- batch task isolation (IDOR regression) -----------------------------------------
+
+
+def test_batch_task_isolated_per_tenant(client):
+    """GET /batch/{id} must 404 for a foreign tenant (uuid4 ids are not authz)."""
+    import asyncio
+
+    from app.database import create_batch_task
+
+    tenant_a = _make_tenant("BatchCo-A")
+    tenant_b = _make_tenant("BatchCo-B")
+    key_a = _issue_key("analyst", tenant_id=tenant_a)
+    key_b = _issue_key("analyst", tenant_id=tenant_b)
+
+    asyncio.run(create_batch_task("task-owned-by-a", 3, tenant_id=tenant_a))
+
+    # Owner of the task sees it.
+    r_ok = client.get("/api/v1/batch/task-owned-by-a", headers={"X-API-Key": key_a})
+    assert r_ok.status_code == 200
+    assert r_ok.json()["task_id"] == "task-owned-by-a"
+
+    # Foreign tenant gets 404 on both status and download (no existence leak).
+    assert client.get("/api/v1/batch/task-owned-by-a",
+                      headers={"X-API-Key": key_b}).status_code == 404
+    assert client.get("/api/v1/batch/task-owned-by-a/download",
+                      headers={"X-API-Key": key_b}).status_code == 404
+
+    # Open-mode / Default-tenant request must not see it either.
+    assert client.get("/api/v1/batch/task-owned-by-a").status_code == 404

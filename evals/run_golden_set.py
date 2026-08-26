@@ -15,6 +15,8 @@ import os
 import sys
 from typing import Any, Dict, List
 
+import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from evals.generate_fixtures import DATASET_DIR, ensure_fixtures  # noqa: E402
@@ -50,11 +52,10 @@ class MockVisionProvider:
 
 
 def _changed_pixels(ref, sus) -> int:
-    return sum(
-        1
-        for (r1, g1, b1), (r2, g2, b2) in zip(ref.getdata(), sus.getdata())
-        if abs(r1 - r2) + abs(g1 - g2) + abs(b1 - b2) > 10
-    )
+    # numpy instead of the deprecated Image.getdata() (Pillow 11+).
+    a = np.asarray(ref).astype(int)
+    b = np.asarray(sus).astype(int)
+    return int((np.abs(a - b).sum(axis=2) > 10).sum())
 
 
 async def run(provider_mode: str = "mock") -> Dict[str, Any]:

@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Optional
 
 from pydantic import SecretStr, field_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.llm_provider import ProviderType, VisionProvider, create_provider
 
@@ -103,9 +103,7 @@ class Settings(BaseSettings):
         }
 
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 
     @field_validator("provider")
     @classmethod
