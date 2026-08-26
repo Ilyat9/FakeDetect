@@ -5,7 +5,7 @@ import socket
 
 import pytest
 
-from services.security import UnsafeURLError, validate_url
+from app.services.security import UnsafeURLError, validate_url
 
 
 @pytest.fixture()

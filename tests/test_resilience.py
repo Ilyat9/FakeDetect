@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from core.deadline import Deadline, DeadlineExceeded, current_deadline, set_deadline
-from core.resilience import (
+from app.core.deadline import Deadline, DeadlineExceeded, current_deadline, set_deadline
+from app.core.resilience import (
     BreakerConfig,
     BreakerState,
     CircuitBreaker,
@@ -82,5 +82,5 @@ def test_deadline_budget_and_contextvar():
         with pytest.raises(ValueError):
             Deadline(0)
     finally:
-        from core.deadline import reset_deadline
+        from app.core.deadline import reset_deadline
         reset_deadline(token)

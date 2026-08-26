@@ -8,8 +8,8 @@ import pytest
 from PIL import Image
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 
 
 def _png(color=(50, 100, 150)) -> bytes:
@@ -25,7 +25,7 @@ def _png(color=(50, 100, 150)) -> bytes:
 
 @pytest.mark.asyncio
 async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
-    from database import (
+    from app.database import (
         create_brand_watch,
         get_recent_findings,
         get_watch_listings,
@@ -44,9 +44,9 @@ async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
         return [dict(l) for l in listings]
 
     monkeypatch.setattr(
-        "services.discovery.search_parsers.search_marketplace", fake_search
+        "app.services.discovery.search_parsers.search_marketplace", fake_search
     )
-    monkeypatch.setattr("services.browser_service.PLAYWRIGHT_AVAILABLE", False)
+    monkeypatch.setattr("app.services.browser_service.PLAYWRIGHT_AVAILABLE", False)
 
     async def fake_fetch(url):
         # Distinct image per URL: identical photos would legitimately collapse
@@ -57,7 +57,7 @@ async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
                 "content_type": "image/png"}
 
     monkeypatch.setattr(
-        "services.marketplace_image_fetcher.parse_marketplace_image", fake_fetch
+        "app.services.marketplace_image_fetcher.parse_marketplace_image", fake_fetch
     )
 
     llm_calls = {"n": 0}
@@ -85,14 +85,14 @@ async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
 
     monkeypatch.setattr(settings, "telegram_bot_token", SecretStr("t"))
     monkeypatch.setattr(settings, "telegram_chat_id", "42")
-    monkeypatch.setattr("telegram_alerts.send_telegram_alert", fake_alert)
+    monkeypatch.setattr("app.telegram_alerts.send_telegram_alert", fake_alert)
 
     wid = await create_brand_watch(
         "WatchBrand", "watch kw", "WB", "0 */6 * * *", 24,
         json.dumps([base64.b64encode(_png((200, 30, 30))).decode()]),
     )
 
-    from services.discovery_engine import run_watch_scan
+    from app.services.discovery_engine import run_watch_scan
 
     stats = await run_watch_scan(wid)
     assert stats["status"] == "ok"
@@ -121,7 +121,7 @@ async def test_full_discovery_cycle_with_dedup(client, monkeypatch):
 
 
 def test_digest_text_format():
-    from services.discovery_engine import build_digest_text
+    from app.services.discovery_engine import build_digest_text
 
     text = build_digest_text("Nike", [
         {"url": "https://x/1", "title": "t", "price": 1999.0, "seller": "S",
@@ -134,7 +134,7 @@ def test_digest_text_format():
 async def test_discovery_scan_is_tenant_scoped(client, monkeypatch):
     """Regression: findings of a tenant's watch must belong to that tenant
     (checks + listings), not leak into the default tenant."""
-    from database import (
+    from app.database import (
         create_brand_watch,
         get_watch_listings,
     )
@@ -158,16 +158,16 @@ async def test_discovery_scan_is_tenant_scoped(client, monkeypatch):
         return result, {"consensus": "not_needed"}
 
     monkeypatch.setattr(
-        "services.discovery.search_parsers.search_marketplace", fake_search)
-    monkeypatch.setattr("services.browser_service.PLAYWRIGHT_AVAILABLE", False)
+        "app.services.discovery.search_parsers.search_marketplace", fake_search)
+    monkeypatch.setattr("app.services.browser_service.PLAYWRIGHT_AVAILABLE", False)
     monkeypatch.setattr(
-        "services.marketplace_image_fetcher.parse_marketplace_image", fake_fetch)
+        "app.services.marketplace_image_fetcher.parse_marketplace_image", fake_fetch)
     monkeypatch.setattr(gateway, "analyze_resilient", fake_resilient)
     monkeypatch.setattr(gateway, "run_consensus", no_consensus)
 
     # Watch owned by tenant #2.
     async def make_watch():
-        from database import create_brand_watch
+        from app.database import create_brand_watch
 
         return await create_brand_watch(
             "TenantBrand", "kw", "WB", "0 */6 * * *", 24,
@@ -177,7 +177,7 @@ async def test_discovery_scan_is_tenant_scoped(client, monkeypatch):
 
     wid = await make_watch()
 
-    from services.discovery_engine import run_watch_scan
+    from app.services.discovery_engine import run_watch_scan
 
     stats = await run_watch_scan(wid)
     assert stats["analyzed"] == 1
@@ -188,7 +188,7 @@ async def test_discovery_scan_is_tenant_scoped(client, monkeypatch):
     # The saved check must also belong to tenant 2 (not default tenant 1).
     import aiosqlite
 
-    from database import DB_PATH
+    from app.database import DB_PATH
 
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(

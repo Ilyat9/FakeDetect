@@ -66,7 +66,7 @@ async def run(provider_mode: str = "mock") -> Dict[str, Any]:
     if provider_mode == "mock":
         provider = MockVisionProvider()
     else:
-        from core.config import get_llm_provider, settings
+        from app.core.config import get_llm_provider, settings
 
         provider = get_llm_provider(settings.provider)
 
@@ -82,7 +82,7 @@ async def run(provider_mode: str = "mock") -> Dict[str, Any]:
             verdict = raw["verdict"]
         else:
             # Real path goes through strict validation (A.4).
-            from core.llm_gateway import prompt_fingerprint, validated_provider_call
+            from app.core.llm_gateway import prompt_fingerprint, validated_provider_call
 
             result = await validated_provider_call(provider, ref_bytes, sus_bytes, {}, "golden")
             verdict = result.verdict

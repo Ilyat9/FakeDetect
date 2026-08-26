@@ -5,8 +5,8 @@ import base64
 import pytest
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 
 RESULT = {
     "verdict": "ОРИГИНАЛ",
@@ -87,8 +87,8 @@ def test_queue_unknown_request_404(client):
 
 @pytest.mark.asyncio
 async def test_retry_worker_processes_pending_item(client, monkeypatch):
-    from database import cache_get_result, enqueue_retry
-    from services.retry_worker import process_pending_once
+    from app.database import cache_get_result, enqueue_retry
+    from app.services.retry_worker import process_pending_once
 
     async def ok(orig, sus, meta, preferred_provider=None):
         return dict(RESULT), {}

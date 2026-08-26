@@ -6,9 +6,9 @@ import uuid
 import pytest
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
-from database import DB_PATH
+from app.core import llm_gateway as gateway
+from app.core.config import settings
+from app.database import DB_PATH
 from tests.test_cases import _make_check, _first_case, fake_llm  # noqa: F401
 
 
@@ -35,9 +35,9 @@ async def test_overdue_detection_and_escalation_once(client, fake_llm, monkeypat
 
     monkeypatch.setattr(settings, "telegram_bot_token", SecretStr("t"))
     monkeypatch.setattr(settings, "telegram_chat_id", "1")
-    monkeypatch.setattr("telegram_alerts.send_telegram_alert", fake_alert)
+    monkeypatch.setattr("app.telegram_alerts.send_telegram_alert", fake_alert)
 
-    from services.scheduler_service import _sla_tick
+    from app.services.scheduler_service import _sla_tick
 
     await _sla_tick()
     assert sent["n"] == 1
@@ -93,7 +93,7 @@ async def test_original_verdict_does_not_open_case(client, fake_llm, monkeypatch
     }, headers={"X-Request-ID": f"orig-{uuid.uuid4().hex[:8]}"})
     assert res.status_code == 200
 
-    from database import get_case_by_check
+    from app.database import get_case_by_check
 
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute("SELECT MAX(id) FROM checks")

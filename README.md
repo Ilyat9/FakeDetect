@@ -58,7 +58,7 @@ node scripts/screenshots.mjs           # пишет в docs/screenshots/
 pip install -r requirements.txt
 playwright install chromium        # для /analyze-deep и батчей
 cp .env.example .env               # укажите GEMINI_API_KEY или GROK_API_KEY
-uvicorn main:app --reload          # http://localhost:8000, Swagger — /docs
+uvicorn app.main:app --reload          # http://localhost:8000, Swagger — /docs
 ```
 
 **Frontend (SPA)**
@@ -79,19 +79,30 @@ docker compose up --build          # backend :8000, frontend :8080
 
 ```
 FakeDetect/
-├── main.py, server.py        # Сборка FastAPI-приложения; legacy-точка входа
-├── core/                     # Конфигурация, security, circuit breaker, метрики
-├── routers/                  # HTTP-слой (/api/v1): analysis, batch, data, cases,
-│                             #   watches, analytics, billing, partner, system
-├── services/                 # Бизнес-логика: tenancy, resilience, discovery,
-│                             #   evidence, batch, scheduler, retry worker
-├── parsers/                  # Парсеры WB / Ozon / Яндекс Маркет
-├── forensics/                # pHash, ELA, EXIF-анализ изображений
-├── aggregator.py             # Композитный вердикт (взвешенная сумма сигналов)
-├── llm_provider.py           # Провайдеры: Gemini / Grok Vision
-├── database.py               # SQLite + versioned-миграции (15 таблиц)
+├── app/                      # Backend (FastAPI)
+│   ├── main.py               # Сборка приложения (роутеры, middleware, startup)
+│   ├── core/                 # Конфигурация, security, circuit breaker, метрики
+│   ├── routers/              # HTTP-слой (/api/v1): analysis, batch, data, cases,
+│   │                         #   watches, analytics, billing, partner, system
+│   ├── services/             # Бизнес-логика: tenancy, resilience, discovery,
+│   │                         #   evidence, batch, scheduler, retry worker
+│   ├── parsers/              # Парсеры WB / Ozon / Яндекс Маркет
+│   ├── forensics/            # pHash, ELA, EXIF-анализ изображений
+│   ├── models/               # Pydantic-схемы
+│   ├── templates/            # Шаблоны жалоб
+│   ├── database.py           # SQLite + versioned-миграции (15 таблиц)
+│   ├── aggregator.py         # Композитный вердикт (взвешенная сумма сигналов)
+│   ├── llm_provider.py       # Провайдеры: Gemini / Grok Vision
+│   ├── batch_processor.py    # Фоновая батч-обработка + Excel-отчёт
+│   ├── observability.py      # JSON-логи, request-id
+│   └── telegram_alerts.py    # Telegram-уведомления
+├── server.py                 # Legacy-алиас точки входа (uvicorn server:app)
+├── legacy/index.html         # Прежний монолитный фронтенд (для отката)
 ├── tests/                    # pytest: unit + integration
 ├── frontend/                 # SPA: React 19 + TS strict, Feature-Sliced, TanStack
+├── scripts/                  # Утилиты (генерация примера Excel)
+├── evals/                    # Golden-set оценки качества детекции
+├── loadtests/                # Locust-сценарии (SLO)
 ├── docs/                     # ARCHITECTURE, COMPROMISES, CHANGELOG, DEPLOY, QUICKSTART,
 │                             #   architecture-decisions, screenshots
 ├── Dockerfile                # Multi-stage образ (Playwright Chromium)

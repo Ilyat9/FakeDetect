@@ -8,7 +8,7 @@ import uuid
 import pytest
 from PIL import Image
 
-from core.config import settings
+from app.core.config import settings
 
 
 def _png(color=(10, 20, 30)) -> bytes:
@@ -26,7 +26,7 @@ def _png(color=(10, 20, 30)) -> bytes:
 def demo_env(monkeypatch):
     monkeypatch.setattr(settings, "demo_mode", True)
     monkeypatch.setattr(settings, "gemini_api_key", None)
-    from services import tenancy
+    from app.services import tenancy
 
     tenancy._ip_buckets.clear()
     yield
@@ -35,7 +35,7 @@ def demo_env(monkeypatch):
 
 def test_demo_anonymous_can_analyze(demo_env, client, monkeypatch):
     """Anonymous visitor acts as analyst of the Default tenant."""
-    import core.llm_gateway as gateway
+    from app.core import llm_gateway as gateway
     from pydantic import SecretStr
 
     async def fake(orig, sus, meta, preferred_provider=None):
@@ -64,7 +64,7 @@ def test_demo_metrics_hidden_from_anonymous(demo_env, client):
 
 def test_demo_per_ip_analyze_rate_limit(demo_env, client, monkeypatch):
     """Expensive endpoint is throttled per IP even for anonymous visitors."""
-    import core.llm_gateway as gateway
+    from app.core import llm_gateway as gateway
     from pydantic import SecretStr
 
     async def fake(orig, sus, meta, preferred_provider=None):
@@ -94,7 +94,7 @@ def test_demo_cost_cap_applied_at_bootstrap(demo_env, client):
     """Bootstrap caps the shared demo tenant's monthly budget."""
     import asyncio
 
-    from database import get_tenant
+    from app.database import get_tenant
 
     tenant = asyncio.run(get_tenant(1))
     assert int(tenant["max_checks_per_month"]) <= settings.demo_max_checks_per_month

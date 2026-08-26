@@ -3,8 +3,8 @@
 import pytest
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 
 BASE = {
     "verdict": "ПОДОЗРИТЕЛЬНО",

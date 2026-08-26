@@ -1,6 +1,6 @@
 """Telegram alert formatting tests (HTML mode, escaping)."""
 
-from telegram_alerts import format_alert_text
+from app.telegram_alerts import format_alert_text
 
 
 def test_user_data_is_html_escaped():

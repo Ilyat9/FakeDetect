@@ -26,8 +26,7 @@ jobs:
           DB_PATH: /tmp/ci_fakedetect.db
         run: >
           pytest -v
-          --cov=services --cov=parsers --cov=routers --cov=core
-          --cov=database --cov=aggregator --cov=telegram_alerts
+          --cov=app
           --cov-report=term-missing
 
   lint:

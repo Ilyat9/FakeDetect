@@ -12,8 +12,8 @@ import pytest
 from PIL import Image
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 from tests.test_tenancy import _issue_key, _make_tenant, _png
 
 
@@ -106,7 +106,7 @@ def test_stripe_webhook_updates_plan_and_limits(client, monkeypatch):
     assert ok.status_code == 200
 
     import asyncio
-    from database import get_tenant
+    from app.database import get_tenant
 
     tenant = asyncio.run(get_tenant(tenant_b))
     assert tenant["plan"] == "business"

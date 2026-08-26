@@ -5,7 +5,7 @@ import io
 import pytest
 from PIL import Image
 
-from forensics.phash import compute_phash
+from app.forensics.phash import compute_phash
 
 
 def _png(color=(120, 30, 200), size=64) -> bytes:
@@ -31,8 +31,8 @@ def _patched_png(base_color=(120, 30, 200)) -> bytes:
 
 @pytest.mark.asyncio
 async def test_phash_identical_images_zero_distance(client):
-    from database import find_similar_suspect_hash, save_image_hash
-    from forensics.phash import hamming_distance, similarity_percent
+    from app.database import find_similar_suspect_hash, save_image_hash
+    from app.forensics.phash import hamming_distance, similarity_percent
 
     data = _png()
     h1 = compute_phash(data)
@@ -51,7 +51,7 @@ async def test_phash_identical_images_zero_distance(client):
 
 
 def test_ela_flags_edited_image_stronger_than_clean():
-    from forensics.ela import compute_ela
+    from app.forensics.ela import compute_ela
 
     clean = compute_ela(_png(), flag_threshold=25.0)
     edited = compute_ela(_patched_png(), flag_threshold=25.0)
@@ -62,7 +62,7 @@ def test_ela_flags_edited_image_stronger_than_clean():
 
 
 def test_ela_never_raises_on_garbage():
-    from forensics.ela import compute_ela
+    from app.forensics.ela import compute_ela
 
     result = compute_ela(b"not an image")
     assert result["ela_score"] == 0.0 and result["ela_flag"] is False
@@ -72,7 +72,7 @@ def test_ela_never_raises_on_garbage():
 
 
 def test_exif_missing_on_png():
-    from forensics.exif import extract_exif_flags
+    from app.forensics.exif import extract_exif_flags
 
     subset, flags = extract_exif_flags(_png())
     assert any("отсутствуют" in f["factor"] for f in flags)
@@ -80,7 +80,7 @@ def test_exif_missing_on_png():
 
 def test_exif_editor_software_flagged():
     from PIL import Image
-    from forensics.exif import extract_exif_flags
+    from app.forensics.exif import extract_exif_flags
 
     img = Image.new("RGB", (32, 32))
     exif = img.getexif()
@@ -97,7 +97,7 @@ def test_exif_editor_software_flagged():
 
 
 def test_final_score_full_breakdown():
-    from core.verdict_engine import compute_final_score
+    from app.core.verdict_engine import compute_final_score
 
     final, breakdown = compute_final_score(
         llm_confidence=80,
@@ -121,7 +121,7 @@ def test_final_score_full_breakdown():
 
 
 def test_final_score_renormalizes_missing_signals():
-    from core.verdict_engine import compute_final_score
+    from app.core.verdict_engine import compute_final_score
 
     final_only_llm, b1 = compute_final_score(llm_confidence=70)
     assert final_only_llm == 70
@@ -135,7 +135,7 @@ def test_final_score_renormalizes_missing_signals():
 
 
 def test_price_ratio_bounds():
-    from core.verdict_engine import compute_final_score
+    from app.core.verdict_engine import compute_final_score
 
     _, low = compute_final_score(llm_confidence=None, price_ratio=0.05,
                                  price_floor=0.2, price_ceiling=0.8)
@@ -146,7 +146,7 @@ def test_price_ratio_bounds():
 
 
 def test_confidence_adjustment_clamped():
-    from core.verdict_engine import adjust_confidence_with_forensics
+    from app.core.verdict_engine import adjust_confidence_with_forensics
 
     # Forensics contradict LLM: pulled down by at most 15 points.
     assert adjust_confidence_with_forensics("ОРИГИНАЛ", 95, 20) == 80

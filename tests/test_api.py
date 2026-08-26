@@ -69,7 +69,7 @@ def test_whitelist_crud_via_v1(client):
 
 
 def test_protected_endpoints_require_api_key(client, monkeypatch):
-    from core.config import settings
+    from app.core.config import settings
     monkeypatch.setattr(settings, "api_secret_key", SecretStr("topsecret"))
 
     for path in ("/api/v1/stats", "/api/v1/history"):
@@ -118,7 +118,7 @@ def test_batch_requires_url_column(client):
 
 def test_full_batch_flow_with_mocked_llm(client, monkeypatch, tmp_path):
     """Regression test for fix 1.1: batch must complete and produce an xlsx report."""
-    import batch_processor as bp
+    from app import batch_processor as bp
 
     class FakeProvider:
         async def analyze(self, original_bytes, suspect_bytes, meta):
@@ -131,7 +131,7 @@ def test_full_batch_flow_with_mocked_llm(client, monkeypatch, tmp_path):
     async def fake_fetch_suspect(self, url):
         return b"\x89PNG fake-suspect"
 
-    from core.config import settings
+    from app.core.config import settings
     monkeypatch.setattr(settings, "gemini_api_key", SecretStr("test-key"))
     monkeypatch.setattr(bp, "create_provider", lambda name, key: FakeProvider())
     monkeypatch.setattr(bp.BatchProcessor, "_fetch_suspect_image", fake_fetch_suspect)

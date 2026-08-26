@@ -10,9 +10,11 @@ __pycache__
 .env
 tests/
 .github/
-QUICKSTART.md
-CHANGELOG.md
-README.md
+docs/
+frontend/
+scripts/
+loadtests/
 Dockerfile
 docker-compose.yml
 .dockerignore
+

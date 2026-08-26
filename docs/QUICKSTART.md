@@ -25,7 +25,7 @@ echo "GEMINI_API_KEY=ваш_ключ" > .env
 ## 3. Запуск
 
 ```bash
-uvicorn server:app --reload
+uvicorn app.main:app --reload   # или: uvicorn server:app --reload (legacy-алиас)
 ```
 
 ## 4. Открыть в браузере
@@ -34,22 +34,7 @@ http://localhost:8000
 
 ## Структура проекта
 
-```
-Style_Check/
-├── server.py              # FastAPI сервер
-├── aggregator.py          # Агрегатор результатов анализа
-├── parsers/               # Пarsers маркетплейсов
-│   ├── base.py            # Базовый класс
-│   ├── wildberries.py     # WB
-│   ├── ozon.py            # Ozon
-│   ├── yandex.py          # Яндекс
-│   └── factory.py         # Фабрика
-├── llm_provider.py        # LLM провайдеры
-├── index.html             # Frontend
-├── .env.example           # Конфиг
-├── requirements.txt       # Зависимости
-└── README.md              # Документация
-```
+Актуальная структура репозитория — в [README.md](../README.md#архитектура).
 
 ### Новые компоненты
 

@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
-from parsers.base import ParseResult, detect_marketplace
-from parsers.factory import get_parser
-from parsers.wildberries import (
+from app.parsers.base import ParseResult, detect_marketplace
+from app.parsers.factory import get_parser
+from app.parsers.wildberries import (
     WB_FALLBACK_BASKET,
     WildberriesParser,
     basket_for_vol,

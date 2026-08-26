@@ -7,8 +7,8 @@ import pytest
 from PIL import Image
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 
 import uuid
 
@@ -82,7 +82,7 @@ def test_case_auto_created_with_evidence_manifest(client, fake_llm):
     assert case["status"] == "DETECTED"
     assert case["seller"] == "BadSeller"
 
-    from services.evidence_store import get_manifest
+    from app.services.evidence_store import get_manifest
 
     manifest = get_manifest(case["check_id"])
     names = {f["name"] for f in manifest}
@@ -172,7 +172,7 @@ def test_bulk_reports_invalid_targets(client, fake_llm):
 def test_manual_review_verdict_opens_case_in_manual_status(client, fake_llm):
     """D.3: consensus/manual-review verdicts start the case directly in
     REQUIRES_MANUAL_REVIEW instead of DETECTED."""
-    import core.llm_gateway as gateway2
+    from app.core import llm_gateway as gateway2
 
     async def manual_result(orig, sus, meta, preferred_provider=None):
         return (

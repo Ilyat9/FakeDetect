@@ -24,7 +24,7 @@ def _png(color=(50, 100, 150)) -> bytes:
 
 
 def test_compute_next_run_at_valid_cron():
-    from services.discovery_engine import compute_next_run_at
+    from app.services.discovery_engine import compute_next_run_at
 
     nxt = compute_next_run_at("0 7 * * *")
     parsed = datetime.strptime(nxt, "%Y-%m-%d %H:%M:%S")
@@ -32,7 +32,7 @@ def test_compute_next_run_at_valid_cron():
 
 
 def test_compute_next_run_at_invalid_cron_falls_back():
-    from services.discovery_engine import compute_next_run_at
+    from app.services.discovery_engine import compute_next_run_at
 
     nxt = compute_next_run_at("not a cron")
     assert len(nxt) == 19  # falls back to +24h instead of raising
@@ -45,7 +45,7 @@ def test_compute_next_run_at_invalid_cron_falls_back():
 async def test_listing_dedup_ttl_by_verdict(client):
     import aiosqlite
 
-    from database import (
+    from app.database import (
         DB_PATH,
         create_brand_watch,
         listing_needs_recheck,
@@ -89,7 +89,7 @@ async def test_listing_dedup_ttl_by_verdict(client):
 
 @pytest.mark.asyncio
 async def test_get_due_watches_respects_next_run(client):
-    from database import create_brand_watch, get_due_watches, set_watch_run_state
+    from app.database import create_brand_watch, get_due_watches, set_watch_run_state
 
     wid = await create_brand_watch("DueBrand", "kw", "WB", "0 7 * * *", 24, json.dumps([]))
     now = "2999-01-01 00:00:00"
@@ -106,7 +106,7 @@ async def test_get_due_watches_respects_next_run(client):
 
 @pytest.mark.asyncio
 async def test_search_wildberries_parses_api(monkeypatch):
-    from services.discovery import search_parsers
+    from app.services.discovery import search_parsers
 
     payload = {
         "data": {

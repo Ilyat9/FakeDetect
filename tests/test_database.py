@@ -1,10 +1,11 @@
 """Database CRUD and migration runner tests."""
 
 import asyncio
+import importlib
 import os
 
-import database
-from database import (
+from app import database
+from app.database import (
     add_to_whitelist,
     cleanup_old_batch_tasks,
     create_batch_task,
@@ -52,7 +53,7 @@ def test_whitelist_crud_and_lookup():
     assert _run(is_whitelisted("sellerx", "brandx", "WB")) is True
     assert _run(is_whitelisted("unknown", "brandx", "WB")) is False
 
-    entries = _run(__import__("database").get_whitelist(brand="BrandX"))
+    entries = _run(importlib.import_module("app.database").get_whitelist(brand="BrandX"))
     assert any(e["id"] == entry_id for e in entries)
 
     assert _run(delete_from_whitelist(entry_id)) is True

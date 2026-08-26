@@ -8,8 +8,8 @@ import pytest
 from PIL import Image
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 
 LLM_CALLS = {"n": 0}
 

@@ -1,6 +1,6 @@
 """Aggregator verdict rules unit tests."""
 
-from aggregator import (
+from app.aggregator import (
     FAKE_IN_REVIEWS_CONFIDENCE,
     SUSPICIOUS_RATIO_THRESHOLD,
     ImageAggregator,

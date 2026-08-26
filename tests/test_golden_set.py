@@ -20,7 +20,7 @@ def test_golden_set_mock_mode_passes():
 
 def test_prompt_fingerprint_stable():
     """A.8: prompt fingerprint must be deterministic for identical meta."""
-    from core.llm_gateway import prompt_fingerprint
+    from app.core.llm_gateway import prompt_fingerprint
 
     a = prompt_fingerprint({"brand": "X", "marketplace": "WB"})
     b = prompt_fingerprint({"brand": "X", "marketplace": "WB"})

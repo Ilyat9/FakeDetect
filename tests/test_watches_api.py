@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 from pydantic import SecretStr
 
-from core.config import settings
+from app.core.config import settings
 
 
 def _png_bytes() -> bytes:
@@ -74,7 +74,7 @@ def test_run_now_triggers_scan_task(client, monkeypatch):
         called["n"] += 1
         return {"status": "ok"}
 
-    monkeypatch.setattr("services.discovery_engine.run_watch_scan", fake_scan)
+    monkeypatch.setattr("app.services.discovery_engine.run_watch_scan", fake_scan)
 
     r = client.post(f"/api/v1/watches/{wid}/run-now")
     assert r.status_code == 200

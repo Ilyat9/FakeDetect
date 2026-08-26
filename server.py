@@ -6,6 +6,6 @@ Run the application with either::
     uvicorn main:app --reload       # canonical
 """
 
-from core.config import settings  # noqa: F401  (re-exported for backwards compat)
-from main import app  # noqa: F401
+from app.core.config import settings  # noqa: F401  (re-exported for backwards compat)
+from app.main import app  # noqa: F401
 

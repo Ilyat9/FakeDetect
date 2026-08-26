@@ -14,6 +14,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 @pytest.fixture()
 def client():
     """TestClient with app lifespan (startup initializes the isolated DB)."""
-    from main import app
+    from app.main import app
     with TestClient(app) as c:
         yield c

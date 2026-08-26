@@ -8,8 +8,8 @@ import pytest
 from PIL import Image
 from pydantic import SecretStr
 
-import core.llm_gateway as gateway
-from core.config import settings
+from app.core import llm_gateway as gateway
+from app.core.config import settings
 
 
 def _png(color=(30, 60, 90)) -> bytes:
@@ -27,8 +27,8 @@ def _issue_key(role="analyst", tenant_id=1) -> str:
     """Issue a raw API key for a tenant (stored hashed)."""
     import asyncio
 
-    from database import create_api_key
-    from services.tenancy import hash_key
+    from app.database import create_api_key
+    from app.services.tenancy import hash_key
 
     raw = f"fdtest-{role}-{tenant_id}-{uuid.uuid4().hex[:8]}"
 
@@ -47,7 +47,7 @@ def _make_tenant(name, **limits) -> int:
 
     import aiosqlite
 
-    from database import DB_PATH
+    from app.database import DB_PATH
 
     async def go():
         async with aiosqlite.connect(DB_PATH) as db:
