@@ -1,7 +1,7 @@
 """Billing webhooks + plan management (Block F.4).
 
 Provider-agnostic normalized contract (documented compromise F-C6 in
-COMPROMISES.md): real provider payloads are mapped to this contract by thin
+docs/COMPROMISES.md): real provider payloads are mapped to this contract by thin
 adapters; Stripe signatures are verified via HMAC when the webhook secret is
 configured. Yookassa adapter requires its shared secret header.
 """

@@ -1,509 +1,172 @@
 <div align="center">
 
-# FakeDetect — AI-детектор контрафакта на маркетплейсах
+# FakeDetect
+
+**Платформа защиты бренда от контрафакта на маркетплейсах** (Wildberries, Ozon, Яндекс Маркет).
 
 [![CI](https://github.com/Ilyat9/FakeDetect/actions/workflows/ci.yml/badge.svg)](https://github.com/Ilyat9/FakeDetect/actions/workflows/ci.yml)
 [![Frontend CI](https://github.com/Ilyat9/FakeDetect/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Ilyat9/FakeDetect/actions/workflows/frontend-ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-3.1.0-009485)
 ![React](https://img.shields.io/badge/frontend-React_19_·_TS_strict-61dafb)
-![Tests](https://img.shields.io/badge/tests-145_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-178_passing-brightgreen)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-
-**Проблема:** бренды теряют выручку на контрафакт в WB / Ozon / Яндекс Маркете.
-Ручной поиск подделок не масштабируется: тысячи карточек, продавцы переезжают между площадками,
-жалобы требуют доказательств, которых «пост-factum» уже не собрать.
-
-**Решение:** FakeDetect автоматически находит подозрительные карточки (автономный discovery по расписанию),
-выносит вердикт «подделка / оригинал» с композитным скорингом (pHash + ELA/EXIF форензика + консенсус
-LLM-визуальных моделей), ведёт каждый случай как кейс со статусной машиной и SLA, собирает юридически
-аккуратный **evidence-PDF** (цепочка хранения доказательств) и текст жалобы одним кликом — и показывает
-руководителю защищённую выручку на дашборде.
 
 </div>
 
----
+## Зачем
 
-## ⚡ Цифры
+Бренды теряют выручку из-за контрафакта, а ручной поиск подделок не масштабируется: карточек тысячи,
+продавцы переезжают между площадками, для жалобы нужны доказательства, которые после факта уже не собрать.
+
+**FakeDetect** закрывает весь цикл: находит подозрительные карточки по расписанию, выносит вердикт
+с композитным скорингом (pHash + ELA/EXIF + консенсус LLM-визуальных моделей), ведёт кейс до закрытия,
+собирает evidence-PDF с цепочкой доказательств и показывает руководителю защищённую выручку.
 
 | | |
 |---|---|
-| 🧪 **145 тестов** | 113 backend (pytest: unit + integration) + 32 frontend (Vitest + RTL + MSW), включая регрессионные тесты контрактов |
-| 🔌 **46 эндпоинтов** `/api/v1` | анализ, батч, кейсы, watches, аналитика, биллинг, partner-API |
-| 🗄 **15 таблиц** | versioned-миграции SQLite (готов слой под Postgres) |
-| 🧱 **6 production-блоков** | надёжность (A) · форензика (B) · мониторинг (C) · evidence/workflow (D) · ROI-дашборд (E) · тенанты/роли/биллинг (F) |
+| Тесты | 178: 113 backend (pytest) + 65 frontend (Vitest/RTL/MSW), включая контрактные |
+| API | 46 эндпоинтов `/api/v1` + OpenAPI (`/docs`) |
+| Хранилище | 15 таблиц, SQLite с versioned-миграциями (слой готов под Postgres) |
 
-## 🏗 Architecture Highlights
+## Скриншоты
 
-1. **[Свой circuit breaker + retry-queue](ARCHITECTURE.md)** — отказ LLM-провайдера деградирует сервис,
-   а не роняет его: заявки уходят в персистентную очередь повторов, идемпотентность по request_id.
-2. **[Композитный вердикт с объяснением](README.md#-многоуровневый-движок-детекции-block-b)** — pHash fast-path,
-   ELA/EXIF-форензика и консенсус Gemini/Grok; UI показывает разбивку факторов («почему такой вердикт»),
-   а не чёрный ящик.
-3. **[Evidence-PDF с chain of custody](README.md#️-evidence-package-и-workflow-кейсов-block-d)** — скриншоты,
-   артефакты, история цен и переходов статуса фиксируются на момент обнаружения, а не при подаче жалобы.
-4. **[Нормализованный контракт вебхуков](routers/billing.py)** — платёжные провайдеры приводятся к единой
-   внутренней модели событий; подпись проверяется до парсинга бизнес-данных.
-5. **[Мульти-тенантность на X-API-Key](services/tenancy.py)** — роли owner/admin/analyst/viewer/legal,
-   tenant-scoped ответы, 404 вместо 403 против утечки id, квоты тарифных планов.
-6. **[Production-grade SPA фронтенд](frontend/README.md)** — React 19 + TS strict + Feature-Sliced Design
-   (границы слоёв ловит ESLint), TanStack Query/Table/Router, поллинг батчей с зафиксированным тестами
-   контрактом статусов, канбан с drag&drop (dnd-kit), Storybook дизайн-системы, Lighthouse CI,
-   nginx reverse-proxy (`/api/*` same-origin, CSP без `unsafe-inline`).
-
-## 📸 Скриншоты
-
-> Актуальные снимки лежат в `docs/screenshots/` (обновляются командой из раздела ниже).
-
-| Дашборд ROI-метрик | Проверка карточки |
+| Дашборд | Вердикт |
 |---|---|
-| ![Дашборд: метрики, динамика проверок, топ нарушителей](docs/screenshots/dashboard.png) | ![Вердикт с разбивкой факторов](docs/screenshots/verdict.png) |
-| **Канбан кейсов** | **Brand watch — лента находок** |
-| ![Кейсы: статусы, SLA, bulk-действия](docs/screenshots/cases.png) | ![Автономный мониторинг бренда](docs/screenshots/watches.png) |
+| ![Дашборд](docs/screenshots/dashboard.png) | ![Вердикт](docs/screenshots/verdict.png) |
+| **Канбан кейсов** | **Brand watch** |
+| ![Кейсы](docs/screenshots/cases.png) | ![Watches](docs/screenshots/watches.png) |
 
 <details>
-<summary>Как обновить скриншоты</summary>
+<summary>Как снять скриншоты</summary>
 
 ```bash
-docker compose up --build      # или: uvicorn main:app --reload  +  cd frontend && npm run dev
-# откройте http://localhost:5173, пройдите по страницам:
-#   /            -> docs/screenshots/dashboard.png
-#   /analyze     -> docs/screenshots/verdict.png   (раскройте «почему такой вердикт»)
-#   /cases       -> docs/screenshots/cases.png     (переключите вид «Канбан»)
-#   /watches     -> docs/screenshots/watches.png
+docker compose up --build   # frontend на http://localhost:8080
+# страницы: / -> dashboard.png · /analyze -> verdict.png ·
+#           /cases -> cases.png (вид «Канбан») · /watches -> watches.png
 ```
 
 </details>
 
----
+## Быстрый старт
 
-> 📋 **Реестр компромиссов**: все осознанные упрощения каждого блока задокументированы
-> в [COMPROMISES.md](COMPROMISES.md) — что упростили, почему, влияние и как исправить
-> после стабилизации MVP. Обновляется по мере развития.
->
-> 🧭 **Architecture Decision Highlights**: краткое «почему так» по ключевым решениям —
-> [docs/architecture-decisions.md](docs/architecture-decisions.md).
-
-
-## Структура проекта
-
-```
-FakeDetect/
-├── main.py                  # Сборка FastAPI-приложения (роутеры, middleware, startup)
-├── server.py                # Backwards-compatible точка входа (uvicorn server:app)
-├── core/
-│   ├── config.py            # Settings, управление LLM-провайдерами и лимитами
-│   └── security.py          # API-key авторизация (X-API-Key)
-├── routers/                 # HTTP-слой (тонкие контроллеры), префикс /api/v1
-│   ├── analysis.py          # /analyze, /analyze-deep, /parse-image
-│   ├── batch.py             # /batch, /batch/{id}, /batch/{id}/download
-│   └── data.py              # /history, /stats, /whitelist
-├── services/                # Бизнес-логика
-│   ├── security.py          # SSRF-защита исходящих HTTP-запросов
-│   ├── browser_service.py   # Playwright headless-браузер (общий)
-│   ├── marketplace_image_fetcher.py  # Извлечение фото товаров по URL
-│   └── batch_service.py     # Фоновая батч-обработка + Excel-отчёт
-├── aggregator.py            # Агрегатор результатов анализа изображений
-├── parsers/                 # Парсеры маркетплейсов (WB, Ozon, Яндекс Маркет)
-├── llm_provider.py          # Провайдеры LLM (Gemini, Grok)
-├── database.py              # SQLite-слой с versioned-миграциями
-├── telegram_alerts.py       # Telegram-уведомления (HTML parse_mode)
-├── tests/                   # pytest: unit + integration (TestClient)
-├── index.html               # Frontend
-├── Dockerfile               # Multi-stage образ с Playwright Chromium
-├── docker-compose.yml       # Оркестрация (+ опциональный Postgres)
-└── .github/workflows/ci.yml # CI: тесты + линтер на каждый push/PR
-```
-
-## Установка
+**Backend**
 
 ```bash
 pip install -r requirements.txt
+playwright install chromium        # для /analyze-deep и батчей
+cp .env.example .env               # укажите GEMINI_API_KEY или GROK_API_KEY
+uvicorn main:app --reload          # http://localhost:8000, Swagger — /docs
 ```
 
-### Новые зависимости
-
-- `beautifulsoup4>=4.12` — HTML парсер
-- `lxml>=5.0` — XML/HTML парсер (быстрее)
-- `playwright` + `playwright-stealth` — headless-браузер для глубокого анализа (`/analyze-deep`)
-  и батч-обработки. **Обязательный шаг после установки:**
+**Frontend (SPA)**
 
 ```bash
-playwright install chromium
+cd frontend && npm install && npm run dev   # http://localhost:5173, /api проксируется на :8000
 ```
 
-Без установленного Chromium `/analyze-deep` вернёт ошибку 501 с инструкцией по установке.
-
-## Настройка
-
-Создайте файл `.env` из шаблона:
+**Docker (одной командой)**
 
 ```bash
-cp .env.example .env
+docker compose up --build          # backend :8000, frontend :8080
 ```
 
-Добавьте API ключ:
+Ключ Gemini — бесплатно на <https://aistudio.google.com>.
 
-```bash
-# Для Gemini (бесплатно)
-echo "GEMINI_API_KEY=ваши_ключ" >> .env
+## Архитектура
 
-# Или для Grok (xAI)
-echo "PROVIDER=grok" >> .env
-echo "GROK_API_KEY=ваши_ключ" >> .env
+```
+FakeDetect/
+├── main.py, server.py        # Сборка FastAPI-приложения; legacy-точка входа
+├── core/                     # Конфигурация, security, circuit breaker, метрики
+├── routers/                  # HTTP-слой (/api/v1): analysis, batch, data, cases,
+│                             #   watches, analytics, billing, partner, system
+├── services/                 # Бизнес-логика: tenancy, resilience, discovery,
+│                             #   evidence, batch, scheduler, retry worker
+├── parsers/                  # Парсеры WB / Ozon / Яндекс Маркет
+├── forensics/                # pHash, ELA, EXIF-анализ изображений
+├── aggregator.py             # Композитный вердикт (взвешенная сумма сигналов)
+├── llm_provider.py           # Провайдеры: Gemini / Grok Vision
+├── database.py               # SQLite + versioned-миграции (15 таблиц)
+├── tests/                    # pytest: unit + integration
+├── frontend/                 # SPA: React 19 + TS strict, Feature-Sliced, TanStack
+├── docs/                     # ARCHITECTURE, COMPROMISES, CHANGELOG, DEPLOY, QUICKSTART,
+│                             #   architecture-decisions, screenshots
+├── Dockerfile                # Multi-stage образ (Playwright Chromium)
+└── docker-compose.yml        # backend + frontend (nginx, /api same-origin)
 ```
 
-Получить Gemini API ключ бесплатно: https://aistudio.google.com
+Ключевые решения (почему свой circuit breaker, нормализованные вебхуки, explainable scoring)
+— [docs/architecture-decisions.md](docs/architecture-decisions.md).
+Осознанные упрощения — [docs/COMPROMISES.md](docs/COMPROMISES.md).
 
-### Безопасность (рекомендуется для продакшена)
+## Возможности
 
-| Переменная | Описание |
+**Детекция.** Композитный вердикт из нормированных сигналов: LLM-confidence (0.45), pHash (0.25),
+ELA (0.15), price ratio (0.10), EXIF (0.05). Пограничная уверенность (40–70%) запускает второго
+провайдера; при расхождении мнений вердикт уходит человеку, оба ответа сохраняются для аудита.
+Каждый сигнал виден в API и в UI («почему такой вердикт») — решение объяснимо, а не «чёрный ящик».
+
+**Автономный мониторинг.** Brand watches по cron-расписанию ищут новые карточки по бренду,
+дедуплицируют по URL/SKU и прогоняют через детекцию; дайджесты в Telegram.
+
+**Кейсы.** Проверка с вердиктом ≠ «оригинал» автоматически открывает кейс:
+`DETECTED → UNDER_REVIEW → CONFIRMED_FAKE/FALSE_POSITIVE → COMPLAINT_FILED → LISTING_REMOVED → CLOSED`.
+Валидация переходов, аудит-журнал, SLA-таймеры с Telegram-эскалацией, bulk-операции,
+evidence-PDF (скриншоты, форензика, история цен, chain of custody) и текст жалобы под площадку.
+
+**Надёжность.** Circuit breaker с автопереключением gemini↔grok, идемпотентность по `X-Request-ID`,
+единый timeout budget, retry-queue на случай отказа всех провайдеров, token bucket,
+JSON-логи + `/metrics` (Prometheus). Цели SLO и конфигурация — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+**Мульти-тенантность.** Изоляция по `tenant_id` на уровне SQL, роли
+`owner > admin > analyst > viewer` (+ `legal` — только кейсы и evidence), квоты тарифов
+free/pro/business (402 при превышении), биллинг-вебхуки Stripe/ЮKassa с проверкой подписи,
+партнёрский контур `/api/v1/partner/*` с per-key rate limit.
+
+## Конфигурация
+
+Основные переменные (полный список — `.env.example`):
+
+| Переменная | Назначение |
 |---|---|
-| `ALLOWED_ORIGINS` | Разрешённые CORS-источники через запятую (например `https://myapp.com`). Пусто — только same-origin. |
-| `API_SECRET_KEY` | Если задан, защищённые эндпоинты (`/history`, `/stats`, `/whitelist*`) требуют заголовок `X-API-Key`. |
+| `GEMINI_API_KEY` / `GROK_API_KEY` | Ключи LLM-провайдеров |
+| `API_SECRET_KEY` | Задан → требуется `X-API-Key`; не задан → open-mode (owner Default-тенанта) |
+| `ALLOWED_ORIGINS` | CORS-источники (пусто = только same-origin) |
+| `DB_PATH` | Путь к SQLite (в Docker — `/data/fakedetect.db`) |
+| `LOG_FORMAT=json` | Структурные логи для продакшена |
 
-Также для продакшена рекомендуется reverse-proxy (nginx) с лимитом тела запроса
-(`client_max_body_size 25m;`) и TLS.
+## Документация
 
-## Запуск
+| Файл | Содержимое |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Архитектура, надёжность, пути масштабирования |
+| [docs/architecture-decisions.md](docs/architecture-decisions.md) | Обоснование ключевых решений |
+| [docs/COMPROMISES.md](docs/COMPROMISES.md) | Реестр упрощений и план их устранения |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | История изменений по блокам |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Деплой: VPS+Caddy, Render/Railway |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | Краткая шпаргалка запуска |
+| [frontend/README.md](frontend/README.md) | Архитектура SPA, команды, API-contract workflow |
+
+## Разработка
 
 ```bash
-uvicorn main:app --reload
-# или через legacy-алиас: uvicorn server:app --reload
+pytest -v                          # backend-тесты
+cd frontend && npm test            # frontend-тесты (Vitest + MSW)
+cd frontend && npm run storybook   # дизайн-система на :6006
 ```
 
-Откройте в браузере: http://localhost:8000
+CI на каждый push/PR: backend (pytest + ruff) и frontend (lint, typecheck, тесты, build,
+Storybook, drift-check OpenAPI-типов против живого бэкенда, Lighthouse, E2E Playwright).
 
-### Docker (рекомендуется для деплоя)
+## Roadmap
 
-```bash
-docker compose up --build -d
-```
-
-Образ включает Playwright Chromium; SQLite персистится в volume `app-data`
-(путь настраивается через `DB_PATH`).
-
-### Тесты
-
-```bash
-pip install -r requirements-dev.txt
-pytest -v --cov=services --cov=parsers --cov=routers --cov=core
-```
-
-CI (GitHub Actions) прогоняет тесты и линтер на каждый push/PR.
-
-## Миграции
-
-Схема SQLite управляется versioned-миграциями в `database.py::MIGRATIONS` — они
-применяются автоматически при старте приложения. Чтобы изменить схему,
-добавьте новый кортеж `(version, description, statements)` в конец списка;
-уже применённые миграции никогда не редактируются.
-
-**Путь на Postgres для продакшена:** SQLite не поддерживает многопроцессный
-`uvicorn --workers N` без блокировок записи. При росте нагрузки переключитесь
-на `SQLAlchemy[asyncio]` + `asyncpg` + Alembic (сервис Postgres уже подготовлен
-в docker-compose.yml как закомментированный профиль).
-
-## Версионирование API
-
-Все эндпоинты доступны под префиксом `/api/v1` (например `/api/v1/analyze`).
-Неверсионированные пути (`/analyze`, `/history`, ...) сохранены как deprecated
-на grace-period и будут удалены в будущем мажорном релизе. `/health` и статика
-не версонируются.
-
-
-## Как использовать
-
-1. Вставьте API ключ в файл `.env`
-2. Выберите режим ввода: загрузить фото или вставить URL маркетплейса
-3. Загрузите эталонное фото и фото с маркетплейса
-4. Нажмите «АНАЛИЗ»
-5. Результат появится через 3-5 секунд
-
-## Эндпоинты API
-
-### Базовые эндпоинты
-- `GET /` — главная страница (HTML)
-- `GET /health` — проверка статуса
-
-### Анализ изображений
-- `POST /analyze` — анализ изображений (парсинг + сравнение)
-- `POST /analyze-deep` — глубокий анализ (парсинг маркетплейса + агрегация результатов по всем фото)
-- `POST /parse-image` — только парсинг URL и извлечение изображений
-
-### Батч-обработка
-- `POST /batch` — пакетная обработка множества товаров
-  - Загружает файл с парами (URL, эталонное фото)
-  - Обрабатывает все товары асинхронно
-  - Возвращает результаты всех анализов
-
-## Технологии
-
-- **Backend**: FastAPI, Uvicorn, httpx, BeautifulSoup4
-- **Frontend**: HTML5, CSS3, Vanilla JS
-- **AI Models**:
-  - Gemini 2.5 Flash Vision (Google)
-  - Grok 2 Vision (xAI)
-- **Features**:
-  - Мульти-маркетплейс парсинг (Wildberries, Ozon, Яндекс Маркет)
-  - Автоматическое извлечение карточек и отзывов с фото
-  - Параллельный анализ изображений с rate limiting
-  - Батч-обработка множества товаров (Excel-импорт)
-  - Retry logic с exponential backoff
-  - CORS для фронтенда
-  - Pydantic Settings для конфигурации
-  - Агрегация результатов от нескольких моделей/парсеров
-  - История проверок в SQLite
-  - Whitelist для исключённых брендов
-
-## 📈 Дашборд ROI-метрик и экспорт (Block E)
-
-То, что продаёт подписку руководству: измеримая польза, а не «детектор картинок».
-
-### API (`/api/v1/analytics/*`, viewer+, tenant-scoped)
-| Эндпоинт | Метрика |
-|---|---|
-| `/timeseries?granularity=day\|week\|month&days=&brand=` | Динамика вердиктов по периодам |
-| `/top-sellers?limit=&days=` | Топ продавцов по подтверждённым нарушениям |
-| `/revenue?days=&brand=` | Оценка защищённой выручки + **явный дисклеймер** |
-| `/timing` | Time-to-detection / time-to-resolution |
-| `/summary` | Всё разом для дашборда |
-| `/export.pdf`, `/export.pptx` | Отчёт для руководства (PDF; PPTX-дека) |
-
-### Фронтенд
-Вкладка **«📊 Дашборд»** в интерфейсе: KPI-карточки (проверки, подделки,
-защищённая выручка, TTD/TTR), stacked-график динамики (Chart.js), таблица топа
-нарушителей, экспорт в PDF/PPTX одной кнопкой.
-
-### Методология
-- **Защищённая выручка** = подтверждённые подделки за период × средняя цена
-  оригинала бренда за тот же период. Это оценка спроса, который мог уйти к
-  контрафакту, — в ответе API и отчётах всегда присутствует дисклеймер.
-- **Time-to-detection** измеряется для карточек, найденных Discovery-мониторингом
-  (от первого появления в выдаче до вердикта); для ручных проверок дата публикации
-  неизвестна.
-- **Time-to-resolution** — от создания кейса до перехода в CLOSED (по журналу
-  статусов).
-
-## 🏢 Мульти-тенантность, роли и биллинг (Block F)
-
-### Тенанты и изоляция (F.1)
-Каждая сущность (checks, whitelist, brands, batch_tasks, brand_watches,
-discovery_listings, image_hashes, cases) несёт `tenant_id`; все списочные запросы
-фильтруются по нему на уровне SQL. Компромисс изоляции зафиксирован
-в COMPROMISES.md (F-C1: фильтрация в запросах; Row-Level Security — после
-миграции на Postgres).
-
-### Аутентификация и роли (F.2)
-- Ключи: `X-API-Key` → SHA-256 → таблица `api_keys` (per-tenant, роль, active).
-- Легаси-мастер-ключ (`API_SECRET_KEY`) продолжает работать = owner Default-тенанта.
-- **Open mode**: если `API_SECRET_KEY` не задан — весь трафик мапится на Default
-  tenant с правами owner (локальная разработка/фронтенд/тесты без ключей).
-- Роли: `owner > admin > analyst > viewer`, плюс спец-роль `legal`
-  (только статусы кейсов + evidence-пакеты; без сырых LLM-ответов и конфигурации).
-
-| Действие | Минимальная роль |
-|---|---|
-| Чтение history/stats/cases/evidence-pdf/complaint | viewer (+legal для кейсов) |
-| Запуск /analyze, /analyze-deep, /batch, reverse search | analyst |
-| Переходы статусов, комментарии, assign, bulk | analyst |
-| Whitelist write, brand watches CRUD/run-now, /cases/overdue | admin |
-| Управление API-ключами, биллинг-план | owner |
-
-### Лимиты тарифов (F.3)
-`tenants.max_checks_per_month / max_watches / max_users`. При превышении —
-**402 Payment Required** с телом `{error, limit, plan, used, max, upgrade_hint}`.
-Проверка квоты стоит до дорогого LLM-вызова; кэш-реплеи (идемпотентность) квоту
-не расходуют.
-
-### Биллинг (F.4)
-- `POST /api/v1/billing/webhook/stripe` — проверка HMAC подписи `Stripe-Signature`
-  (`BILLING_STRIPE_WEBHOOK_SECRET`, fail-closed) + анти-replay окно 5 минут;
-- `POST /api/v1/billing/webhook/yookassa` — общий секрет в `X-Yookassa-Secret`;
-- события (нормализованный контракт): `subscription_activated {plan}` /
-  `subscription_cancelled` → применение лимитов плана / деактивация тенанта;
-- `POST /api/v1/billing/plans/{tenant_id}` — ручная смена плана (owner своего
-  тенанта). Планы: free 100 проверок/2 watch/3 юзера · pro 2000/10/10 ·
-  business 20000/50/50.
-
-### Партнёрский REST API (F.5)
-Отдельный контур `/api/v1/partner/*`: только по ключам (open-mode НЕ действует),
-строгий per-key rate limit (`PARTNER_RATE_LIMIT_PER_MIN`, по умолчанию 30/мин → 429),
-минимальная поверхность:
-
-```
-POST /api/v1/partner/checks          анализ пары изображений (квотируемый)
-GET  /api/v1/partner/checks/{rid}    вердикт по request_id (tenant-scoped)
-GET  /api/v1/partner/stats           статистика + использование квоты
-```
-
-Swagger/OpenAPI — стандартный `/docs` FastAPI.
-
-## ⚖️ Evidence Package и Workflow кейсов (Block D)
-
-### Кейсы и статус-машина (D.3)
-Каждая проверка с вердиктом ≠ «ОРИГИНАЛ» автоматически открывает **кейс**
-(идемпотентно, один check = один case) и проходит по статусам:
-
-```
-DETECTED → UNDER_REVIEW → CONFIRMED_FAKE / FALSE_POSITIVE →
-COMPLAINT_FILED → LISTING_REMOVED → CLOSED   (+ REQUIRES_MANUAL_REVIEW)
-```
-
-- Недопустимые переходы отклоняются с объяснением (`400` + список разрешённых).
-- Каждый шаг пишется в `case_status_history` (кто/когда/комментарий) — полный аудит.
-- Комментарии сотрудников: `case_comments`.
-- Ответственный: `POST /cases/{id}/assign`.
-- **SLA-таймеры**: на каждый статус — свой лимит часов (DETECTED 24ч, UNDER_REVIEW 72ч,
-  COMPLAINT_FILED 168ч…); scheduler раз в 30 минут проверяет просрочки и шлёт
-  Telegram-эскалацию ответственному/руководителю (не чаще раза в 12ч на кейс).
-- **Bulk-операции**: `POST /cases/bulk-transition` — массовый перевод статуса,
-  например все кейсы одного продавца → COMPLAINT_FILED.
-
-### Evidence Package — PDF (D.1)
-`GET /api/v1/cases/{id}/evidence-pdf` генерирует юридически ориентированный отчёт:
-
-1. реквизиты кейса (бренд, URL, продавец, вердикт, время),
-2. сравнение эталон vs подозрительный side-by-side,
-3. скриншот карточки на момент проверки (best-effort; если браузер недоступен в
-   момент проверки — делается при генерации PDF),
-4. таблица признаков + форензик-сигналы (ELA, pHash, EXIF-флаги, final_score),
-5. история цены товара по всем проверкам этого URL,
-6. **цепочка хранения доказательств**: SHA-256 каждого файла-артефакта,
-   зафиксированные системой при сохранении.
-
-Артефакты (reference/suspect/meta/screenshot) пишутся в `EVIDENCE_DIR/{check_id}/`,
-манифест дублируется в колонку `checks.evidence_files`.
-
-### Шаблоны жалоб (D.2)
-`GET /api/v1/cases/{id}/complaint?marketplace=WB|Ozon|Yandex` — готовый текст жалобы,
-автозаполненный данными кейса и доказательствами (Jinja2-шаблоны в
-`templates/complaints/`, легко править без кода). Публичного API подачи брендовых
-жалоб у площадок нет — текст копируется в форму площадки вручную; цель — ускорить
-ручной шаг до ~30 секунд, а не имитировать интеграцию.
-
-## 🤖 Автономный мониторинг — Discovery Engine (Block C)
-
-Система сама ищет подозрительные карточки по бренду: пользователю больше не нужно
-приносить ссылки вручную.
-
-### Как работает
-1. **Brand Watch** (`POST /api/v1/watches`): бренд + ключевые слова + площадки
-   (WB/Ozon/Yandex) + эталонное фото + cron-расписание скана (например `0 7 * * *`).
-2. **Scheduler** внутри FastAPI-процесса (APScheduler): каждую минуту проверяет,
-   какие watch'и «созрели», и запускает сканы в фоне; расписание живёт в БД и
-   переживает рестарты.
-3. **Discovery-парсеры** (C.2): WB — публичный JSON search API (без браузера);
-   Ozon/Яндекс — Playwright с деградацией до httpx (partial results).
-4. **Дедупликация** (C.3): найденная карточка (`discovery_listings`, уникально
-   watch+URL) повторно анализируется только по истечении TTL вердикта:
-   ОРИГИНАЛ → 7 дней, ПОДОЗРИТЕЛЬНО → 2 дня, ПОДДЕЛКА → 1 день (`RECHECK_*`);
-   плюс pHash fast path из блока B не тратит LLM на уже виденные фото.
-5. **Анализ**: каждая новая карточка проходит тот же пайплайн, что `/analyze`
-   (форензика → LLM → консенсус → композитный счёт) без участия человека.
-6. **Дайджесты** (C.4): находки копятся и отправляются сводкой в Telegram раз в
-   `digest_interval_hours` (per-watch), вместо алерта на каждую карточку;
-   email-дайджест — заготовка (SMTP-провайдер на выбор).
-
-### API
-```
-POST   /api/v1/watches                    создать watch (multipart: + reference image)
-GET    /api/v1/watches                    список
-GET    /api/v1/watches/{id}               статус (last_run_at, next_run_at, last_status)
-GET    /api/v1/watches/{id}/listings      найденные карточки с вердиктами
-POST   /api/v1/watches/{id}/run-now       внеплановый скан немедленно
-DELETE /api/v1/watches/{id}               удалить watch и его листинги
-```
-
-## 🧠 Многоуровневый движок детекции (Block B)
-Проверка больше не «один вызов LLM». Пайплайн `/api/v1/analyze`:
-
-```
-suspect.png ──► pHash ──дубликат?──да──► мгновенный вердикт (verdict_source=phash_match)
-                   │                              без затрат на LLM
-                   ▼ нет
-              ELA + EXIF ──► объективные форензик-сигналы (в ответ и в историю)
-                   ▼
-              LLM Vision (circuit breaker + failover) ──► строгая валидация JSON
-                   ▼ confidence ∈ [40..70]?
-              Multi-model consensus: второй провайдер параллельно
-                   ▼
-              Композитный счёт final_score = Σ(w·s)/Σw + разбивка «почему столько»
-```
-
-### pHash fast path (B.1)
-Каждое изображение получает перцептивный хэш; если в базе уже есть классифицированное
-изображение с хэмминговым расстоянием ≤ `PHASH_HAMMING_THRESHOLD` (по умолчанию 8 из 64 бит),
-вердикт переиспользуется мгновенно — поле `verdict_source` будет `"phash_match"`.
-Повторить анализ принудительно можно заголовком `X-Force-Recheck: true`.
-
-### ELA и EXIF (B.2)
-- `ela_score`/`ela_flag` — Error Level Analysis: пересжатие JPEG с известным качеством,
-  статистика ошибки. Аномально высокая локальная ошибка → признак склейки/ретуши;
-  добавляется в `indicators` как независимый сигнал-доказательство.
-- `exif_flags` — отсутствие EXIF у «живого» фото, дата съёмки в будущем, следы
-  редакторов (Photoshop/GIMP/Lightroom…) — каждый флаг виден в indicators.
-
-### Multi-model consensus (B.3)
-Если первый провайдер вернул **пограничную уверенность** (`CONSENSUS_CONFIDENCE_LOW..
-HIGH`, по умолчанию 40–70), автоматически запрашивается второй провайдер:
-- **verdicts совпали** → итоговая уверенность = среднее + 10 (максимум 99), `consensus: "agreement"`;
-- **мнения разошлись** → автоматический вердикт НЕ выдаётся: статус становится
-  «ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ», оба сырых ответа сохраняются в `raw_model_responses`
-  (и в колонку `raw_model_responses` в БД) для аудита, `consensus: "disagreement"`;
-- второй провайдер недоступен → остаётся вердикт первого, `consensus: "second_opinion_unavailable"`.
-
-> Это фича прозрачности, а не баг: часть пограничных кейсов сознательно уходит человеку.
-
-### Объяснимый композитный вердикт (B.4)
-`final_score = Σ(wᵢ·sᵢ)/Σwᵢ` только по доступным сигналам (недостающие исключаются,
-веса перенормируются). Каждый сигнал нормирован в шкалу «подлинности» 0–100:
-
-| Сигнал | Нормировка | Вес по умолчанию |
-|---|---|---|
-| `llm_confidence` | как есть | 0.45 |
-| `phash_similarity` | сходство с эталоном | 0.25 |
-| ELA | 100 − ela_score | 0.15 |
-| EXIF | 100 − 20×(число red flags) | 0.05 |
-| price_ratio | линейно: ≤0.2→0 … ≥0.8→100 | 0.10 |
-
-Веса — в конфиге (`W_*`, `PRICE_FLOOR/CEILING`). Ответ API содержит `final_score` и
-`score_components` с raw-значением и вкладом каждого сигнала — решение объяснимо,
-как в кредитном скоринге, а не «чёрный ящик одной модели».
-
-## 🛡️ Надёжность и SLO (Block A)
-
-Продакшен-механизмы (подробности — в [ARCHITECTURE.md](ARCHITECTURE.md), изменения — в
-[CHANGELOG.md](CHANGELOG.md)):
-
-| Механизм | Что даёт | Конфиг |
-|---|---|---|
-| Circuit breaker на провайдера | 5 ошибок подряд → провайдер временно исключается, трафик автоматически идёт на второй (gemini↔grok) | `CB_*` |
-| Идемпотентность | повтор `/analyze` с тем же `X-Request-ID` возвращает кэш — LLM не оплачивается дважды | `IDEMPOTENCY_TTL_HOURS` |
-| Единый timeout budget | весь путь запроса укладывается в SLA; иначе 504 + Retry-After | `REQUEST_TIMEOUT_BUDGET_SECONDS` |
-| Строгая валидация LLM | невалидный JSON → 1 corrective retry → вердикт «ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ», не 500 | — |
-| Retry queue | все провайдеры лежат → 202 + polling `/api/v1/queue/{id}`, воркер доигрывает сам | `RETRY_QUEUE_*` |
-| Token bucket | превентивный троттлинг под квоту API, без 429 постфактум | `RL_CAPACITY`, `RL_REFILL_RATE` |
-| Observability | JSON-логи с request_id, `/metrics` (Prometheus), детальный `/health` | `LOG_FORMAT` |
-
-**SLO (заявленные цели; замеряются locust-сценариями из `loadtests/`):**
-
-| Метрика | Цель |
-|---|---|
-| Успешность единичного анализа (без учёта недоступности внешних API) | ≥ 99.9% |
-| Латентность `POST /api/v1/analyze-deep` при 20 параллельных пользователях | p95 < 8 с |
-| Латентность `GET /health`, `/api/v1/history` | p95 < 100 мс |
-| Время реакции breaker'а на отказ провайдера | ≤ N=5 последовательных ошибок |
-
-Фактические цифры после прогонов фиксируйте здесь: _заполните после первого прогона
-`locust --headless -u 20 -r 2 -t 60s` на целевом железе_.
-
-## 🗺️ Roadmap
-
-### v0.2 — Фундамент
-- [x] Docker + docker-compose для удобного запуска в одной команде
-- [x] Юнит- и интеграционные тесты (pytest) + CI
-
-### v0.3 — Масштабирование
 - [ ] Поддержка Авито и AliExpress
-- [ ] Telegram-бот интерфейс: отправил ссылку — получил результат
+- [ ] Telegram-бот: отправил ссылку — получил результат
+- [ ] Postgres + Row-Level Security (после стабилизации схемы тенантов)
+
+## Лицензия
+
+[MIT](LICENSE)
+
+

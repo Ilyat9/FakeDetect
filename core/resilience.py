@@ -4,7 +4,7 @@ Block A.1 (breaker) and A.6 (preventive client-side throttling).
 
 The state is kept per-process (one asyncio loop). For multi-worker deployments
 either enable sticky provider routing or move breaker counters to Redis — see
-ARCHITECTURE.md, "Распределённый деплой".
+docs/ARCHITECTURE.md, "Распределённый деплой".
 """
 
 import asyncio

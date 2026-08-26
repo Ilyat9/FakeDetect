@@ -1,7 +1,7 @@
 # Architecture Decision Highlights
 
 Короткие ответы «почему так» по решениям, которые чаще всего вызывают вопросы.
-Полный реестр упрощений — [COMPROMISES.md](../COMPROMISES.md), обзор системы — [ARCHITECTURE.md](../ARCHITECTURE.md).
+Полный реестр упрощений — [COMPROMISES.md](COMPROMISES.md), обзор системы — [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

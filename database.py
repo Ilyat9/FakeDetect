@@ -909,7 +909,7 @@ async def find_similar_suspect_hash(
 
     SQLite cannot compute popcount in SQL, so candidates are scanned in Python;
     the table is bounded by classified images only, which keeps it fast at the
-    current scale (see ARCHITECTURE.md for the pgvector/Faiss upgrade path).
+    current scale (see docs/ARCHITECTURE.md for the pgvector/Faiss upgrade path).
     """
     try:
         async with aiosqlite.connect(DB_PATH) as db:
