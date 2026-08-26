@@ -60,6 +60,7 @@ async def run_watch_scan(watch_id: int) -> Dict[str, Any]:
         return {"status": "inactive_or_missing"}
 
     brand = watch["brand_name"]
+    watch_tenant = int(watch.get("tenant_id") or 1)
     keywords = [k.strip() for k in (watch["keywords"] or "").split(",") if k.strip()]
     marketplaces = [m.strip() for m in (watch["marketplaces"] or "WB").split(",") if m.strip()]
 
@@ -87,7 +88,10 @@ async def run_watch_scan(watch_id: int) -> Dict[str, Any]:
 
         async def process(listing: Dict[str, Any]) -> None:
             async with semaphore:
-                await _process_listing(watch_id, brand, listing, reference_bytes, stats)
+                await _process_listing(
+                    watch_id, brand, listing, reference_bytes, stats,
+                    tenant_id=watch_tenant,
+                )
 
         from services.discovery.search_parsers import search_marketplace
 
@@ -106,7 +110,9 @@ async def run_watch_scan(watch_id: int) -> Dict[str, Any]:
                 stats["found"] += len(found)
                 for item in found:
                     fields = {k: v for k, v in item.items() if k != "url"}
-                    listing_id, created = await upsert_listing(watch_id, item["url"], **fields)
+                    listing_id, created = await upsert_listing(
+                        watch_id, item["url"], tenant_id=watch_tenant, **fields
+                    )
                     if created:
                         stats["new"] += 1
                     needs = await listing_needs_recheck(
@@ -159,6 +165,7 @@ async def _process_listing(
     listing: Dict[str, Any],
     reference_bytes: Optional[bytes],
     stats: Dict[str, int],
+    tenant_id: int = 1,
 ) -> None:
     """Analyze one discovered listing through the forensic+LLM pipeline."""
     url = listing["url"]
@@ -273,6 +280,7 @@ async def _process_listing(
         "score_components": components,
         "phash": suspect_phash,
         "verdict_source": verdict_source,
+        "tenant_id": tenant_id,
     })
 
     check_id = await save_check(result)

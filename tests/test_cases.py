@@ -51,14 +51,17 @@ def fake_llm(monkeypatch, tmp_path):
 
 
 def _make_check(client) -> tuple:
-    """Create a fresh check — unique request id and brand (the session DB is
-    shared between tests, so idempotency must not swallow earlier runs'
-    requests and background workers must not confuse cases)."""
+    """Create a fresh check — unique request id, brand AND suspect image
+    (identical images legitimately collapse into the Block B pHash fast path,
+    bypassing the gateway mock entirely)."""
     tag = uuid.uuid4().hex[:8]
     rid = uuid.uuid4().hex
+    seed = int(tag[:4], 16)
     res = client.post("/api/v1/analyze", files={
         "original": ("o.png", _png((0, 0, 255)), "image/png"),
-        "suspect": ("s.png", _png((200, 50, 50)), "image/png"),
+        "suspect": ("s.png",
+                    _png((seed % 256, (seed * 3) % 256, (seed * 7) % 256)),
+                    "image/png"),
     }, data={"url": f"https://www.wildberries.ru/catalog/{tag}/detail.aspx",
              "brand": f"CaseBrand-{tag}", "seller": "BadSeller"},
         headers={"X-Request-ID": rid})
@@ -164,3 +167,36 @@ def test_bulk_reports_invalid_targets(client, fake_llm):
     body = r.json()
     assert body["transitioned"] == 0
     assert body["failed"][0]["error"]
+
+
+def test_manual_review_verdict_opens_case_in_manual_status(client, fake_llm):
+    """D.3: consensus/manual-review verdicts start the case directly in
+    REQUIRES_MANUAL_REVIEW instead of DETECTED."""
+    import core.llm_gateway as gateway2
+
+    async def manual_result(orig, sus, meta, preferred_provider=None):
+        return (
+            {"verdict": "ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ", "confidence": 50,
+             "summary": "models disagree", "risk_level": "unknown",
+             "indicators": []},
+            {"provider": None, "verdict_source": "llm_analysis"},
+        )
+
+    original_analyze = gateway2.analyze_resilient
+    gateway2.analyze_resilient = manual_result
+    original_analyze = gateway2.analyze_resilient
+    gateway2.analyze_resilient = manual_result
+    try:
+        tag, _rid = _make_check(client)
+    finally:
+        gateway2.analyze_resilient = original_analyze
+
+    case = _first_case(client, f"CaseBrand-{tag}")
+    print("DEBUG case:", case["status"], case["verdict"])
+    assert case["status"] == "REQUIRES_MANUAL_REVIEW"
+    history = client.get(f"/api/v1/cases/{case['id']}/history").json()["history"]
+    assert history[0]["to_status"] == "REQUIRES_MANUAL_REVIEW"
+
+    r = client.post(f"/api/v1/cases/{case['id']}/transition",
+                    json={"to_status": "UNDER_REVIEW"})
+    assert r.status_code == 200

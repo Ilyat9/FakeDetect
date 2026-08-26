@@ -1139,7 +1139,9 @@ async def get_due_watches(now_str: str, limit: int = 5) -> List[Dict[str, Any]]:
 # --- discovery listings (Block C.3) -------------------------------------------------
 
 
-async def upsert_listing(watch_id: int, url: str, **fields: Any) -> tuple:
+async def upsert_listing(
+    watch_id: int, url: str, tenant_id: int = 1, **fields: Any
+) -> tuple:
     """Insert or refresh a discovered listing. Returns (id, created).
 
     Discovery metadata (sku/title/price/seller) is refreshed on re-find;
@@ -1167,10 +1169,11 @@ async def upsert_listing(watch_id: int, url: str, **fields: Any) -> tuple:
 
             await db.execute(
                 """INSERT INTO discovery_listings
-                   (watch_id, url, sku, title, price, seller, thumbnail_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (watch_id, url, sku, title, price, seller, thumbnail_url, tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (watch_id, url, fields.get("sku"), fields.get("title"),
-                 fields.get("price"), fields.get("seller"), fields.get("thumbnail_url")),
+                 fields.get("price"), fields.get("seller"),
+                 fields.get("thumbnail_url"), tenant_id),
             )
             await db.commit()
             row = await db.execute("SELECT last_insert_rowid()")
@@ -1288,7 +1291,8 @@ async def get_check_row(check_id: int) -> Optional[Dict[str, Any]]:
 async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None) -> int:
     """Create (or return existing) case for a check. Returns case id.
 
-    tenant_id is inherited from the underlying check row.
+    - tenant_id is inherited from the underlying check row;
+    - manual-review verdicts start directly in REQUIRES_MANUAL_REVIEW (D.3).
     """
     try:
         async with aiosqlite.connect(DB_PATH) as db:
@@ -1308,10 +1312,16 @@ async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None)
             if not check:
                 return -1
 
+            initial_status = (
+                "REQUIRES_MANUAL_REVIEW"
+                if check["verdict"] == "ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ"
+                else "DETECTED"
+            )
+
             sla_clause = ""
             params: List[Any] = [
                 check_id, check["url"], check["brand"], check["marketplace"],
-                check["seller"], check["verdict"],
+                check["seller"], check["verdict"], initial_status,
             ]
             if sla_hours:
                 sla_clause = ", sla_deadline = datetime('now', ?)"
@@ -1320,8 +1330,8 @@ async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None)
 
             cursor = await db.execute(
                 f"""INSERT INTO cases (check_id, url, brand, marketplace, seller,
-                       verdict{', sla_deadline' if sla_hours else ''}, tenant_id)
-                   VALUES (?, ?, ?, ?, ?, ?{', ?' if sla_hours else ''}, ?)""",
+                       verdict, status{', sla_deadline' if sla_hours else ''}, tenant_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?{', ?' if sla_hours else ''}, ?)""",
                 params,
             )
             await db.commit()
@@ -1329,8 +1339,8 @@ async def create_case_from_check(check_id: int, sla_hours: Optional[int] = None)
             case_id = (await row.fetchone())[0]
             await db.execute(
                 "INSERT INTO case_status_history (case_id, from_status, to_status, changed_by) "
-                "VALUES (?, NULL, 'DETECTED', 'system:auto')",
-                (case_id,),
+                "VALUES (?, NULL, ?, 'system:auto')",
+                (case_id, initial_status),
             )
             await db.commit()
             return case_id

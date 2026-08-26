@@ -403,7 +403,6 @@ async def _finalize_analyze_response(
         headers={"X-Request-ID": rid, "X-Cache": "MISS"},
     )
 
-# === FINALIZE MARKER ===
 
 @router.post("/analyze-deep")
 async def analyze_deep(

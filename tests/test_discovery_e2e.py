@@ -128,3 +128,70 @@ def test_digest_text_format():
          "verdict": "ПОДДЕЛКА", "confidence": 88},
     ])
     assert "Nike" in text and "Подделок: 1" in text and "1999₽" in text
+
+
+@pytest.mark.asyncio
+async def test_discovery_scan_is_tenant_scoped(client, monkeypatch):
+    """Regression: findings of a tenant's watch must belong to that tenant
+    (checks + listings), not leak into the default tenant."""
+    from database import (
+        create_brand_watch,
+        get_watch_listings,
+    )
+
+    async def fake_search(marketplace, keyword, limit, browser_page=None):
+        return [{"url": "https://www.wildberries.ru/catalog/424242/detail.aspx",
+                 "sku": "424242", "title": "T", "price": 1000.0, "seller": "S"}]
+
+    async def fake_fetch(url):
+        return {"image_base64": base64.b64encode(_png()).decode(),
+                "content_type": "image/png"}
+
+    async def fake_resilient(orig, sus, meta, preferred_provider=None):
+        return (
+            {"verdict": "ПОДДЕЛКА", "confidence": 90, "summary": "f",
+             "risk_level": "high", "indicators": []},
+            {"provider": "gemini", "verdict_source": "llm_analysis"},
+        )
+
+    async def no_consensus(result, provider, o, s, m):
+        return result, {"consensus": "not_needed"}
+
+    monkeypatch.setattr(
+        "services.discovery.search_parsers.search_marketplace", fake_search)
+    monkeypatch.setattr("services.browser_service.PLAYWRIGHT_AVAILABLE", False)
+    monkeypatch.setattr(
+        "services.marketplace_image_fetcher.parse_marketplace_image", fake_fetch)
+    monkeypatch.setattr(gateway, "analyze_resilient", fake_resilient)
+    monkeypatch.setattr(gateway, "run_consensus", no_consensus)
+
+    # Watch owned by tenant #2.
+    async def make_watch():
+        from database import create_brand_watch
+
+        return await create_brand_watch(
+            "TenantBrand", "kw", "WB", "0 */6 * * *", 24,
+            json.dumps([base64.b64encode(_png((200, 30, 30))).decode()]),
+            tenant_id=2,
+        )
+
+    wid = await make_watch()
+
+    from services.discovery_engine import run_watch_scan
+
+    stats = await run_watch_scan(wid)
+    assert stats["analyzed"] == 1
+
+    rows = await get_watch_listings(wid)
+    assert rows[0]["tenant_id"] == 2
+
+    # The saved check must also belong to tenant 2 (not default tenant 1).
+    import aiosqlite
+
+    from database import DB_PATH
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT tenant_id FROM checks WHERE url LIKE '%424242%'")
+        check_tenant = (await cur.fetchone())[0]
+    assert check_tenant == 2
