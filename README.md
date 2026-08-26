@@ -2,8 +2,8 @@
 
 # FakeDetect — AI-детектор контрафакта на маркетплейсах
 
-[![CI](https://github.com/OWNER/FakeDetect/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
-[![Frontend CI](https://github.com/OWNER/FakeDetect/actions/workflows/frontend-ci.yml/badge.svg)](.github/workflows/frontend-ci.yml)
+[![CI](https://github.com/Ilyat9/FakeDetect/actions/workflows/ci.yml/badge.svg)](https://github.com/Ilyat9/FakeDetect/actions/workflows/ci.yml)
+[![Frontend CI](https://github.com/Ilyat9/FakeDetect/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Ilyat9/FakeDetect/actions/workflows/frontend-ci.yml)
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-3.1.0-009485)
 ![React](https://img.shields.io/badge/frontend-React_19_·_TS_strict-61dafb)
@@ -48,7 +48,8 @@ LLM-визуальных моделей), ведёт каждый случай �
    tenant-scoped ответы, 404 вместо 403 против утечки id, квоты тарифных планов.
 6. **[Production-grade SPA фронтенд](frontend/README.md)** — React 19 + TS strict + Feature-Sliced Design
    (границы слоёв ловит ESLint), TanStack Query/Table/Router, поллинг батчей с зафиксированным тестами
-   контрактом статусов, nginx reverse-proxy (`/api/*` same-origin, CSP без `unsafe-inline`).
+   контрактом статусов, канбан с drag&drop (dnd-kit), Storybook дизайн-системы, Lighthouse CI,
+   nginx reverse-proxy (`/api/*` same-origin, CSP без `unsafe-inline`).
 
 ## 📸 Скриншоты
 

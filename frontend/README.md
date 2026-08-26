@@ -18,10 +18,27 @@ Environment: copy `.env.example` → `.env.local` and adjust `VITE_API_URL` if n
 |---|---|
 | `npm run dev` | Vite dev server with `/api` proxy |
 | `npm run build` | typecheck + production bundle |
-| `npm test` | Vitest + RTL + MSW unit/component tests |
+| `npm test` | Vitest + RTL + MSW unit/component/contract tests (65) |
 | `npm run test:e2e` | Playwright smoke suite |
 | `npm run lint` | ESLint incl. FSD layer-boundary rules |
-| `npm run generate:api-types` | regenerate TS types from backend OpenAPI |
+| `npm run storybook` | Design system workbench on :6006 (Button/Badge/VerdictCard/async states) |
+| `npm run lhci` | Lighthouse CI against `dist/` (thresholds in `lighthouserc.json`) |
+| `OPENAPI_URL=http://localhost:8000 npm run generate:api-types` | regenerate TS types from the live backend OpenAPI schema |
+
+## API contract workflow
+
+`src/shared/types/api-schema.d.ts` is **generated from the live FastAPI schema and committed**.
+CI boots the real backend, regenerates the file and fails when it differs from the commit —
+the frontend cannot silently drift from the API. `src/shared/types/api-contract.test.ts`
+additionally pins every endpoint the SPA consumes to the generated schema.
+
+To refresh after a backend change:
+
+```bash
+# with the backend running on :8000 (or set OPENAPI_URL)
+npm run generate:api-types
+npm run check:api-types   # git diff must be empty
+```
 
 ## Architecture
 

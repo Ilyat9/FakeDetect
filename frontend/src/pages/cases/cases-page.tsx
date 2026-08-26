@@ -1,5 +1,16 @@
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
 
 import { useCasesQuery, useBulkTransitionMutation } from "@/entities/case/hooks";
 import type { CaseRow } from "@/entities/case/types";
@@ -9,7 +20,6 @@ import {
   CASE_STATUS_LABELS,
   type CaseStatus,
 } from "@/shared/config";
-import { CASE_TRANSITIONS } from "@/shared/config/statuses";
 import { AsyncBoundary, EmptyState } from "@/shared/ui/async-boundary";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -207,64 +217,92 @@ function CaseTable({
 }
 
 /**
- * Kanban columns per workflow status. Drag & drop is replaced by explicit
- * transition buttons (keyboard-accessible and unambiguous); dnd-kit can be
- * layered on later without changing the data flow.
+ * Kanban columns per workflow status with REAL drag & drop (@dnd-kit).
+ * Pointer AND keyboard sensors (Space to lift, arrows to move) — DnD stays
+ * fully keyboard-accessible; the server re-validates every transition.
  */
 function CaseBoard({ cases }: { cases: CaseRow[] }) {
+  const bulkMutation = useBulkTransitionMutation();
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+    const caseId = Number(active.id);
+    const targetStatus = over.id as CaseStatus;
+    const current = cases.find((c) => c.id === caseId);
+    if (!current || current.status === targetStatus) return;
+    if (!CASE_STATUSES.includes(targetStatus)) return;
+    bulkMutation.mutate({ ids: [caseId], to: targetStatus });
+  };
+
   return (
-    <div className="flex gap-4 overflow-x-auto pb-2">
-      {CASE_STATUSES.map((status) => {
-        const column = cases.filter((c) => c.status === status);
-        return (
-          <section
-            key={status}
-            aria-label={CASE_STATUS_LABELS[status]}
-            className="w-64 shrink-0 rounded-xl border border-line bg-surface p-3"
-          >
-            <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-ink-muted">
-              <span aria-hidden className="inline-block size-2 rounded-full" style={{ background: CASE_STATUS_COLORS[status] }} />
-              {CASE_STATUS_LABELS[status]} ({column.length})
-            </h3>
-            <div className="space-y-2">
-              {column.map((c) => (
-                <article key={c.id} className="rounded-lg border border-line bg-surface-raised p-3 text-sm shadow-sm">
-                  <Link to="/cases/$caseId" params={{ caseId: String(c.id) }} className="font-semibold text-verdict-info hover:underline">
-                    Кейс #{c.id}
-                  </Link>
-                  <p className="mt-1 truncate text-xs text-ink-muted">{c.seller ?? c.url ?? "—"}</p>
-                  {slaBadge(c)}
-                  {CASE_TRANSITIONS[c.status].length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {CASE_TRANSITIONS[c.status].slice(0, 2).map((next) => (
-                        <BoardQuickButton key={next} caseId={c.id} next={next} />
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
-              {column.length === 0 && <p className="py-4 text-center text-xs text-ink-muted">пусто</p>}
-            </div>
-          </section>
-        );
-      })}
-    </div>
+    <DndContext
+      sensors={useSensors(
+        useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+        useSensor(KeyboardSensor),
+      )}
+      collisionDetection={closestCorners}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="flex gap-4 overflow-x-auto pb-2">
+        {CASE_STATUSES.map((status) => (
+          <BoardColumn key={status} status={status} cases={cases.filter((c) => c.status === status)} />
+        ))}
+      </div>
+    </DndContext>
   );
 }
 
-function BoardQuickButton({ caseId, next }: { caseId: number; next: CaseStatus }) {
-  const mutation = useBulkTransitionMutation();
+function BoardColumn({ status, cases }: { status: CaseStatus; cases: CaseRow[] }) {
+  const { setNodeRef, isOver } = useDroppable({ id: status });
   return (
-    <button
-      onClick={(e) => {
-        e.preventDefault();
-        mutation.mutate({ ids: [caseId], to: next });
-      }}
-      disabled={mutation.isPending}
-      className="rounded border border-line px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted hover:border-verdict-fake hover:text-verdict-fake focus-visible:outline focus-visible:outline-2 focus-visible:outline-verdict-info"
+    <section
+      ref={setNodeRef}
+      aria-label={CASE_STATUS_LABELS[status]}
+      className={cn(
+        "w-64 shrink-0 rounded-xl border p-3 transition-colors",
+        isOver ? "border-verdict-fake bg-verdict-fake/5" : "border-line bg-surface",
+      )}
     >
-      → {CASE_STATUS_LABELS[next]}
-    </button>
+      <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-ink-muted">
+        <span aria-hidden className="inline-block size-2 rounded-full" style={{ background: CASE_STATUS_COLORS[status] }} />
+        {CASE_STATUS_LABELS[status]} ({cases.length})
+      </h3>
+      <div className="space-y-2">
+        {cases.map((c) => (
+          <BoardCard key={c.id} caseRow={c} />
+        ))}
+        {cases.length === 0 && <p className="py-4 text-center text-xs text-ink-muted">перетащите карточку сюда</p>}
+      </div>
+    </section>
+  );
+}
+
+function BoardCard({ caseRow }: { caseRow: CaseRow }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: caseRow.id,
+    data: { from: caseRow.status },
+  });
+  return (
+    <article
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      aria-roledescription="Перетаскиваемая карточка кейса"
+      aria-label={`Кейс ${caseRow.id}, статус ${CASE_STATUS_LABELS[caseRow.status]}. Нажмите пробел и стрелки для перемещения.`}
+      className={cn(
+        "cursor-grab touch-none rounded-lg border border-line bg-surface-raised p-3 text-sm shadow-sm active:cursor-grabbing",
+        "focus-visible:outline focus-visible:outline-2 focus-visible:outline-verdict-info",
+        isDragging && "opacity-40",
+      )}
+      tabIndex={0}
+    >
+      <Link to="/cases/$caseId" params={{ caseId: String(caseRow.id) }} onClick={(e) => { e.stopPropagation(); }} className="font-semibold text-verdict-info hover:underline">
+        Кейс #{caseRow.id}
+      </Link>
+      <p className="mt-1 truncate text-xs text-ink-muted">{caseRow.seller ?? caseRow.url ?? "—"}</p>
+      {slaBadge(caseRow)}
+    </article>
   );
 }
 

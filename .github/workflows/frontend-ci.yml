@@ -39,15 +39,32 @@ jobs:
       - name: Production build
         run: npm run build
 
-      # Spec 3.1: fail when generated types drift from the committed ones.
-      # Requires a reachable backend; skipped when it is not running.
-      - name: API types freshness check
+      - name: Storybook build (design system compiles)
+        run: npm run build-storybook
+
+      # Spec 3.1, real check: boot the FastAPI backend, regenerate types from
+      # its live OpenAPI schema and fail when they differ from the committed
+      # file — the frontend can never silently drift from the API contract.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: API types freshness check (against live backend)
         run: |
-          if curl -sf http://localhost:8000/openapi.json > /dev/null; then
-            npm run check:api-types
-          else
-            echo "Backend not reachable in CI — skipping api-schema drift check."
-          fi
+          python -m pip install --quiet -r ../requirements.txt
+          (cd .. && DB_PATH=/tmp/ci_fakedetect.db nohup python -m uvicorn main:app --port 8000 > /tmp/uvicorn.log 2>&1 &)
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8000/openapi.json > /dev/null
+          npm run check:api-types
+
+      # Spec 7.5: Lighthouse CI with Core Web Vitals thresholds
+      # (lighthouserc.json: perf >= 0.8, a11y >= 0.9, LCP <= 2.5s, CLS <= 0.1).
+      - name: Lighthouse CI
+        run: npm run lhci
 
       # Spec 7.4: bundle size budget — main chunk must stay under 300 kB gzipped.
       - name: Bundle size budget
