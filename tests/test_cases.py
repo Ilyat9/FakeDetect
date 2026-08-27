@@ -169,11 +169,9 @@ def test_bulk_reports_invalid_targets(client, fake_llm):
     assert body["failed"][0]["error"]
 
 
-def test_manual_review_verdict_opens_case_in_manual_status(client, fake_llm):
+def test_manual_review_verdict_opens_case_in_manual_status(client, fake_llm, monkeypatch):
     """D.3: consensus/manual-review verdicts start the case directly in
     REQUIRES_MANUAL_REVIEW instead of DETECTED."""
-    from app.core import llm_gateway as gateway2
-
     async def manual_result(orig, sus, meta, preferred_provider=None):
         return (
             {"verdict": "ТРЕБУЕТ РУЧНОЙ ПРОВЕРКИ", "confidence": 50,
@@ -182,17 +180,13 @@ def test_manual_review_verdict_opens_case_in_manual_status(client, fake_llm):
             {"provider": None, "verdict_source": "llm_analysis"},
         )
 
-    original_analyze = gateway2.analyze_resilient
-    gateway2.analyze_resilient = manual_result
-    original_analyze = gateway2.analyze_resilient
-    gateway2.analyze_resilient = manual_result
-    try:
-        tag, _rid = _make_check(client)
-    finally:
-        gateway2.analyze_resilient = original_analyze
+    # monkeypatch (NOT direct assignment): direct assignment leaked the mock
+    # into later tests and made this test order-dependent.
+    monkeypatch.setattr(gateway, "analyze_resilient", manual_result)
+
+    tag, _rid = _make_check(client)
 
     case = _first_case(client, f"CaseBrand-{tag}")
-    print("DEBUG case:", case["status"], case["verdict"])
     assert case["status"] == "REQUIRES_MANUAL_REVIEW"
     history = client.get(f"/api/v1/cases/{case['id']}/history").json()["history"]
     assert history[0]["to_status"] == "REQUIRES_MANUAL_REVIEW"

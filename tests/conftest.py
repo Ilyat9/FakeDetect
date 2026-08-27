@@ -18,6 +18,34 @@ import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_singletons():
+    """Reset EVERY module-level mutable singleton around each test.
+
+    The per-test SQLite database guarantees no *rows* leak between tests,
+    but several modules keep in-memory state that survives otherwise:
+      - llm_gateway._breakers / _buckets: circuit-breaker states and token
+        buckets accumulated by one test change gateway behaviour (time-based
+        recovery windows!) in the next test -> order-dependent flakes.
+      - tenancy._ip_buckets / _partner_buckets: rate-limiter budget leaks.
+      - app.core.config._provider_cache: cached providers with stale keys.
+      - scheduler_service: a live scheduler would tick against whatever DB
+        the current test has mounted; lingering scan tasks must be stopped.
+    """
+    yield
+
+    from app.core.config import _provider_cache
+    from app.core import llm_gateway
+    from app.services import scheduler_service, tenancy
+
+    scheduler_service.stop()          # kills any scheduler left alive
+    llm_gateway._breakers.clear()
+    llm_gateway._buckets.clear()
+    tenancy._ip_buckets.clear()
+    tenancy._partner_buckets.clear()
+    _provider_cache.clear()
+
+
 @pytest.fixture()
 def client(tmp_path):
     """TestClient with app lifespan and a FRESH database per test."""

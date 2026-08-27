@@ -147,6 +147,8 @@ def create_app() -> FastAPI:
         scheduler = getattr(app.state, "scheduler", None)
         if scheduler:
             scheduler.stop()
+            # Wait out cancelled scan tasks so nothing writes after teardown.
+            await scheduler.drain()
 
     # --- Unversioned utility endpoints ---------------------------------------
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)

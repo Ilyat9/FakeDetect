@@ -125,6 +125,18 @@ def stop() -> None:
     if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
-        for task in list(_running_tasks):
-            task.cancel()
         logger.info("Discovery scheduler stopped")
+    for task in list(_running_tasks):
+        task.cancel()
+
+
+async def drain() -> None:
+    """Await termination of cancelled scan tasks.
+
+    Called on app shutdown (and from test teardown) so that no scan coroutine
+    keeps writing to a database file that has already been swapped away.
+    """
+    tasks = [t for t in list(_running_tasks) if not t.done()]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _running_tasks.clear()
