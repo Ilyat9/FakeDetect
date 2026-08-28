@@ -259,6 +259,7 @@ per-key rate limit.
 |---|---|
 | `GEMINI_API_KEY` / `GROK_API_KEY` | Ключи LLM-провайдеров |
 | `API_SECRET_KEY` | Задан → требуется `X-API-Key`; не задан → open-mode (owner Default-тенанта) |
+| `STRICT_AUTH=1` | Отказаться стартовать без `API_SECRET_KEY` вместо open-mode (рекомендуется для клиентских деплоев, см. `docs/DEPLOY.md`) |
 | `ALLOWED_ORIGINS` | CORS-источники (пусто = только same-origin) |
 | `DB_PATH` | Путь к SQLite (в Docker — `/data/fakedetect.db`) |
 | `LOG_FORMAT=json` | Структурные логи для продакшена |

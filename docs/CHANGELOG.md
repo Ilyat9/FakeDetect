@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] — 2026-08-29 — Закрытие критических пунктов реестра компромиссов
+
+### F-C5 — Open mode без предупреждения
+- Startup эмитит `logger.warning("RUNNING IN OPEN MODE...")`, если
+  `API_SECRET_KEY` не задан (`app/main.py`).
+- Новый флаг `STRICT_AUTH=1` (`app/core/config.py`): при отсутствии
+  `API_SECRET_KEY` приложение отказывается стартовать (`RuntimeError`),
+  вместо тихого отката в open mode.
+- `docker-compose.yml` и `docs/DEPLOY.md`: рекомендация `STRICT_AUTH=1` для
+  клиентских/production-деплоев (публичное демо намеренно остаётся open mode).
+- Тесты: `tests/test_strict_auth.py` (падение без ключа при `STRICT_AUTH=1`,
+  успешный старт с ключом, warning-лог в open mode без `STRICT_AUTH`).
+
 ## [3.6.1] — 2026-08-26 — Публичный демо-режим + пост-аудит стыков
 
 ### Demo mode (для портфолио-деплоя)

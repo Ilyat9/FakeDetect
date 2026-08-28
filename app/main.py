@@ -119,6 +119,21 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup():
+        # F-C5: open mode (no API_SECRET_KEY) silently grants owner access to the
+        # default tenant. Warn loudly, or refuse to boot when STRICT_AUTH=1.
+        from app.core.config import get_secret
+
+        if not get_secret(settings.api_secret_key):
+            if settings.strict_auth:
+                raise RuntimeError(
+                    "STRICT_AUTH=1 but API_SECRET_KEY is not set. Refusing to start in "
+                    "open mode. Set API_SECRET_KEY, or unset STRICT_AUTH for local/dev use."
+                )
+            logger.warning(
+                "RUNNING IN OPEN MODE: no API_SECRET_KEY configured, all requests get "
+                "owner access to the default tenant. Set API_SECRET_KEY before exposing "
+                "this instance to any network beyond localhost."
+            )
         await init_db()
         await cleanup_old_batch_tasks(days=7)
         # F: default tenant + legacy master key row in api_keys.

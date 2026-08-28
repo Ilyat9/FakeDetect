@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     allowed_origins: str = ""
     # If set, protected endpoints require the X-API-Key header.
     api_secret_key: Optional[SecretStr] = None
+    # F-C5: refuse to start in open mode (no api_secret_key) when set.
+    strict_auth: bool = False
 
     # --- Block A: production reliability --------------------------------------
     # A.5: structured JSON logs when set to "json".

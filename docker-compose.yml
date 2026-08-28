@@ -8,6 +8,11 @@ services:
     environment:
       # Persist SQLite outside the container filesystem.
       DB_PATH: /data/fakedetect.db
+    # F-C5: STRICT_AUTH and API_SECRET_KEY are picked up from .env via env_file
+    # above. For a client-facing / production deployment (not the public demo),
+    # set STRICT_AUTH=1 in .env so the app refuses to start without
+    # API_SECRET_KEY, instead of silently falling back to open mode. Leave
+    # both unset for the public demo flow documented in docs/DEPLOY.md.
     volumes:
       - app-data:/data
     restart: unless-stopped
