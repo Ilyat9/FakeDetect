@@ -144,6 +144,11 @@ def create_app() -> FastAPI:
         from app.services.retry_worker import run_forever
 
         app.state.retry_worker_task = asyncio.create_task(run_forever())
+        # D.1/D-C1: background replay of evidence screenshots queued while the
+        # browser was unavailable at analysis time.
+        from app.services.screenshot_retry_worker import run_forever as run_screenshots_forever
+
+        app.state.screenshot_worker_task = asyncio.create_task(run_screenshots_forever())
         # C.1: discovery scheduler (cron-driven brand watches).
         from app.services import scheduler_service
 
@@ -152,13 +157,14 @@ def create_app() -> FastAPI:
 
     @app.on_event("shutdown")
     async def shutdown():
-        task = getattr(app.state, "retry_worker_task", None)
-        if task:
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+        for task_attr in ("retry_worker_task", "screenshot_worker_task"):
+            task = getattr(app.state, task_attr, None)
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
         scheduler = getattr(app.state, "scheduler", None)
         if scheduler:
             scheduler.stop()

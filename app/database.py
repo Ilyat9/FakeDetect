@@ -205,6 +205,29 @@ async def init_db() -> None:
                 "ON retry_queue(status, next_attempt_at)"
             )
 
+            # screenshot_queue — evidence screenshot capture (Block D.1 / D-C1):
+            # queued at analysis time (requested_at), retried with backoff if the
+            # browser is unavailable, instead of silently capturing later at
+            # PDF-generation time and pretending it reflects the analysis moment.
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS screenshot_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    check_id INTEGER UNIQUE,
+                    url TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',   -- pending|processing|done|failed
+                    attempts INTEGER DEFAULT 0,
+                    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    next_attempt_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_error TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_screenshot_queue_due "
+                "ON screenshot_queue(status, next_attempt_at)"
+            )
+
             # image_hashes — перцептивные хэши всех изображений (Block B.1):
             # мгновенные вердикты для дубликатов, reverse image search,
             # дедупликация discovery (Block C).
@@ -868,6 +891,114 @@ async def count_retry_queue(status: Optional[str] = None) -> int:
     except Exception as e:
         logger.error(f"Failed to count retry queue: {e}")
         return 0
+
+
+# --- screenshot queue (Block D.1 / D-C1) -----------------------------------------
+
+
+async def enqueue_screenshot(check_id: int, url: str) -> Optional[Dict[str, Any]]:
+    """Queue a screenshot capture at analysis time; returns the row (with
+    requested_at) so callers can record it as the reference moment, even if
+    the capture itself only succeeds later via the retry worker."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute(
+                "INSERT OR IGNORE INTO screenshot_queue (check_id, url) VALUES (?, ?)",
+                (check_id, url),
+            )
+            await db.commit()
+            cursor = await db.execute(
+                "SELECT * FROM screenshot_queue WHERE check_id = ?", (check_id,)
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to enqueue screenshot for check {check_id}: {e}")
+        return None
+
+
+async def get_screenshot_queue_item(check_id: int) -> Optional[Dict[str, Any]]:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM screenshot_queue WHERE check_id = ?", (check_id,)
+            )
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Failed to fetch screenshot queue item for check {check_id}: {e}")
+        return None
+
+
+async def get_due_screenshots(limit: int = 3) -> List[Dict[str, Any]]:
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(
+                "SELECT * FROM screenshot_queue WHERE status = 'pending' "
+                "AND next_attempt_at <= datetime('now') ORDER BY next_attempt_at LIMIT ?",
+                (limit,),
+            )
+            rows = await cursor.fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to fetch due screenshots: {e}")
+        return []
+
+
+async def _update_screenshot(check_id: int, fields: Dict[str, Any]) -> None:
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [check_id]
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            f"UPDATE screenshot_queue SET {sets}, updated_at = CURRENT_TIMESTAMP "
+            f"WHERE check_id = ?",
+            values,
+        )
+        await db.commit()
+
+
+async def mark_screenshot_processing(check_id: int) -> None:
+    try:
+        await _update_screenshot(check_id, {"status": "processing"})
+    except Exception as e:
+        logger.error(f"Failed to mark screenshot processing for check {check_id}: {e}")
+
+
+async def mark_screenshot_done(check_id: int) -> None:
+    try:
+        await _update_screenshot(check_id, {"status": "done", "last_error": None})
+    except Exception as e:
+        logger.error(f"Failed to mark screenshot done for check {check_id}: {e}")
+
+
+async def mark_screenshot_failed(
+    check_id: int, error: str, attempts: int, max_attempts: int
+) -> None:
+    """Exponential backoff (1/2/4/8... minutes); terminal 'failed' after max_attempts."""
+    try:
+        new_attempts = attempts + 1
+        if new_attempts >= max_attempts:
+            await _update_screenshot(check_id, {
+                "status": "failed",
+                "attempts": new_attempts,
+                "last_error": (error or "")[:500],
+            })
+        else:
+            backoff_minutes = 2 ** min(attempts, 5)
+            next_attempt = (
+                datetime.utcnow() + timedelta(minutes=backoff_minutes)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            await _update_screenshot(check_id, {
+                "status": "pending",
+                "attempts": new_attempts,
+                "last_error": (error or "")[:500],
+                "next_attempt_at": next_attempt,
+            })
+    except Exception as e:
+        logger.error(f"Failed to mark screenshot failed for check {check_id}: {e}")
 
 
 # --- perceptual hashes (Block B.1) -----------------------------------------------

@@ -80,6 +80,10 @@ class Settings(BaseSettings):
 
     # --- Block D: evidence & workflow -------------------------------------------
     evidence_screenshots_enabled: bool = True   # best-effort page screenshots
+    # D-C1: screenshot retry-queue worker + honesty deadline.
+    screenshot_queue_poll_seconds: float = 15.0
+    screenshot_queue_max_attempts: int = 5
+    screenshot_deadline_minutes: int = 20       # after this, PDF reports it as absent
 
     # --- Block F: multi-tenancy & billing ---------------------------------------
     billing_stripe_webhook_secret: Optional[SecretStr] = None   # whsec_...

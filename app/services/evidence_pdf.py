@@ -35,6 +35,7 @@ def generate_evidence_pdf(
     price_history: List[Dict[str, Any]],
     manifest_files: List[Dict[str, Any]],
     screenshot_bytes: Optional[bytes] = None,
+    screenshot_meta: Optional[Dict[str, Any]] = None,
 ) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -57,6 +58,8 @@ def generate_evidence_pdf(
 
     story = []
     now = datetime.now(timezone.utc).isoformat()
+    screenshot_meta = screenshot_meta or {}
+    analyzed_at = check.get("checked_at") or "—"
     story.append(Paragraph("FakeDetect — Evidence Package", styles["Title"]))
     meta_rows = [
         ["Case ID", str(case.get("id"))],
@@ -68,6 +71,11 @@ def generate_evidence_pdf(
         ["Verdict at detection",
          f"{case.get('verdict')} ({check.get('confidence')}%)"],
         ["Case status", case.get("status")],
+        # D-C1: analysis date and screenshot-capture date are kept as two
+        # separate rows — a screenshot captured well after analysis must not
+        # be presented as if it reflected the page at analysis time.
+        ["Дата анализа (UTC)", str(analyzed_at)],
+        ["Дата захвата скриншота (UTC)", str(screenshot_meta.get("captured_at") or "—")],
         ["Generated (UTC)", now],
     ]
     t = Table(meta_rows, colWidths=[45 * mm, 120 * mm])
@@ -98,13 +106,37 @@ def generate_evidence_pdf(
         story += [row,
                   Paragraph("Слева — эталон бренда, справа — карточка с маркетплейса.", body)]
 
-    if screenshot_bytes:
-        story += [PageBreak(), Paragraph("2. Скриншот карточки на момент проверки", h2)]
+    story += [PageBreak(), Paragraph("2. Скриншот карточки", h2)]
+    shot_status = screenshot_meta.get("status")
+    if screenshot_bytes and shot_status != "captured_late":
+        story.append(Paragraph(
+            f"Захвачен: {screenshot_meta.get('captured_at') or '—'} "
+            f"(на момент проверки).", body))
         try:
             story.append(RLImage(io.BytesIO(screenshot_bytes), width=160 * mm,
                                  height=110 * mm, preserveAspectRatio=True))
         except Exception:  # noqa: BLE001
             story.append(Paragraph("(скриншот не приложен)", body))
+    elif screenshot_bytes and shot_status == "captured_late":
+        story.append(Paragraph(
+            f"⚠ Скриншот захвачен {screenshot_meta.get('captured_at')} — позже "
+            f"момента анализа ({analyzed_at}). Может не отражать состояние "
+            f"страницы на момент проверки.", body))
+        try:
+            story.append(RLImage(io.BytesIO(screenshot_bytes), width=160 * mm,
+                                 height=110 * mm, preserveAspectRatio=True))
+        except Exception:  # noqa: BLE001
+            pass
+    elif shot_status == "pending":
+        story.append(Paragraph(
+            "Скриншот ещё не захвачен — попытка захвата продолжается в фоне "
+            "(браузер был недоступен на момент анализа). Запросите PDF повторно "
+            "позже.", body))
+    else:
+        story.append(Paragraph(
+            "Скриншот недоступен: захват не удался (браузер/сеть недоступны) "
+            "в пределах контрольного окна после анализа. Не подменён более "
+            "поздним снимком, чтобы не исказить цепочку доказательств.", body))
 
     # --- Indicators & forensics -------------------------------------------------
     story.append(Paragraph("3. Признаки нарушения и форензик-сигналы", h2))

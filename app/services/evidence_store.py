@@ -126,6 +126,55 @@ async def capture_page_screenshot_async(check_id: int, url: str) -> Optional[Dic
         return None
 
 
+def _parse_utc(value: Optional[str]) -> Optional[datetime]:
+    """Parse a timestamp that may be SQLite's naive 'YYYY-MM-DD HH:MM:SS' (assumed
+    UTC — CURRENT_TIMESTAMP) or an aware ISO string, into an aware UTC datetime."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def get_screenshot_status(check_id: int, analyzed_at: Optional[str] = None) -> Dict[str, Any]:
+    """Honest screenshot status for evidence PDFs (D-C1).
+
+    Never triggers a live capture — that used to silently back-date the
+    screenshot to "generate PDF" time. Instead reports what's actually known:
+    a captured screenshot with its real timestamp, or an explicit absence
+    reason (still queued / capture failed) instead of pretending nothing is
+    wrong.
+    """
+    from app.core.config import settings
+    from app.database import get_screenshot_queue_item
+
+    files = get_manifest(check_id)
+    shot = next((f for f in files if f["name"] == "screenshot.png"), None)
+    if shot:
+        captured_at = shot.get("saved_at")
+        late = False
+        captured_dt, analyzed_dt = _parse_utc(captured_at), _parse_utc(analyzed_at)
+        if captured_dt and analyzed_dt:
+            delta_minutes = (captured_dt - analyzed_dt).total_seconds() / 60
+            late = delta_minutes > settings.screenshot_deadline_minutes
+        return {"status": "captured_late" if late else "captured", "captured_at": captured_at}
+
+    queue_item = await get_screenshot_queue_item(check_id)
+    if queue_item and queue_item.get("status") in ("pending", "processing"):
+        requested_dt = _parse_utc(queue_item.get("requested_at"))
+        deadline_passed = False
+        if requested_dt:
+            age_minutes = (datetime.now(timezone.utc) - requested_dt).total_seconds() / 60
+            deadline_passed = age_minutes > settings.screenshot_deadline_minutes
+        if not deadline_passed:
+            return {"status": "pending", "captured_at": None}
+        return {"status": "unavailable", "captured_at": None}
+
+    return {"status": "unavailable", "captured_at": None}
+
+
 def finalize_manifest(check_id: int, files: list) -> None:
     """Write manifest.json and mirror it onto the checks row (async-safe wrapper)."""
     directory = _evidence_dir(check_id)

@@ -177,17 +177,15 @@ async def evidence_pdf_endpoint(request: Request, case_id: int):
     if not check:
         raise HTTPException(status_code=404, detail="Underlying check not found")
 
-    # Best-effort screenshot at generation time when none was captured earlier.
-    screenshot = load_artifact(case["check_id"], "screenshot.png")
-    if not screenshot and case.get("url"):
-        try:
-            from app.services.evidence_store import capture_page_screenshot_async
+    # D-C1: never capture live here — that used to silently back-date the
+    # screenshot to "PDF generation time". Report the real, queued/retried
+    # capture state instead (see screenshot_retry_worker.py).
+    from app.services.evidence_store import get_screenshot_status
 
-            entry = await capture_page_screenshot_async(case["check_id"], case["url"])
-            if entry:
-                screenshot = load_artifact(case["check_id"], "screenshot.png")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Evidence screenshot unavailable for case {case_id}: {e}")
+    screenshot = load_artifact(case["check_id"], "screenshot.png")
+    screenshot_meta = await get_screenshot_status(
+        case["check_id"], analyzed_at=check.get("checked_at")
+    )
 
     pdf_bytes = generate_evidence_pdf(
         case=case,
@@ -195,6 +193,7 @@ async def evidence_pdf_endpoint(request: Request, case_id: int):
         price_history=await get_price_history(case.get("url") or ""),
         manifest_files=get_manifest(case["check_id"]),
         screenshot_bytes=screenshot,
+        screenshot_meta=screenshot_meta,
     )
     return Response(
         content=pdf_bytes,

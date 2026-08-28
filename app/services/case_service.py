@@ -5,7 +5,14 @@ import logging
 from typing import Optional
 
 from app.core.config import settings
-from app.database import create_case_from_check, get_case_by_check
+from app.database import (
+    create_case_from_check,
+    enqueue_screenshot,
+    get_case_by_check,
+    mark_screenshot_done,
+    mark_screenshot_failed,
+    mark_screenshot_processing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +50,43 @@ async def ensure_case_for_check(
             persist_analysis_artifacts(check_id, url, reference_b64, suspect_b64)
 
         if capture_screenshot and settings.evidence_screenshots_enabled and url:
-            from app.services.evidence_store import capture_page_screenshot_async
-
-            asyncio.create_task(capture_page_screenshot_async(check_id, url))
+            # D-C1: queue the capture immediately at analysis time — even if the
+            # browser turns out to be unavailable right now, the row's
+            # requested_at is the analysis moment, and the retry worker
+            # (screenshot_retry_worker.py) keeps trying with backoff instead of
+            # the PDF endpoint silently capturing (and back-dating) it later.
+            queued = await enqueue_screenshot(check_id, url)
+            if queued:
+                asyncio.create_task(_capture_now_or_leave_queued(check_id, url))
 
         logger.info(f"Case #{case_id} ensured for check #{check_id} ({verdict})")
         return case_id
     except Exception as e:  # noqa: BLE001
         logger.error(f"ensure_case_for_check failed for check {check_id}: {e}")
         return None
+
+
+async def _capture_now_or_leave_queued(check_id: int, url: str) -> None:
+    """Fast path: try the screenshot immediately (most of the time the browser
+    IS available). On failure the row stays queued for screenshot_retry_worker.
+    """
+    await mark_screenshot_processing(check_id)
+    try:
+        from app.services.evidence_store import capture_page_screenshot_async
+
+        entry = await capture_page_screenshot_async(check_id, url)
+        if entry:
+            await mark_screenshot_done(check_id)
+        else:
+            await mark_screenshot_failed(
+                check_id,
+                "capture returned no artifact (browser unavailable?)",
+                attempts=0,
+                max_attempts=settings.screenshot_queue_max_attempts,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Immediate screenshot attempt failed for check {check_id}: {e}")
+        await mark_screenshot_failed(
+            check_id, str(e), attempts=0,
+            max_attempts=settings.screenshot_queue_max_attempts,
+        )
