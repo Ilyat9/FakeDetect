@@ -57,9 +57,7 @@ class AssignRequest(BaseModel):
 
 
 def _ensure_tenant_case(case: dict, ctx) -> None:
-    """404 (not 403!) to avoid leaking other tenants' case ids."""
-    if not case or case.get("tenant_id") != ctx.tenant_id:
-        raise HTTPException(status_code=404, detail="Case not found")
+    tenancy.ensure_owned(case, ctx, label="Case")
 
 
 @router.get("/cases")

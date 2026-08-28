@@ -43,6 +43,24 @@ class TenantContext:
         return self.role == LEGAL
 
 
+def ensure_owned(
+    entity: Optional[Dict[str, Any]], ctx: "TenantContext", label: str = "Resource"
+) -> None:
+    """App-level defense-in-depth for get-by-id endpoints (F-C1).
+
+    Every router that fetches a single entity by id (case, batch task, brand
+    watch, ...) MUST route the result through this check before returning it
+    or acting on it, in addition to any ``WHERE tenant_id = ?`` already in the
+    SQL. One missing filter in a future query should not, by itself, leak a
+    row across tenants — this is the second, independent gate.
+
+    Raises 404 (never 403) so tenant B cannot learn that an id exists for
+    tenant A. See docs/ARCHITECTURE.md "tenant-scoped endpoint checklist".
+    """
+    if not entity or entity.get("tenant_id") != ctx.tenant_id:
+        raise HTTPException(status_code=404, detail=f"{label} not found")
+
+
 PLAN_LIMITS: Dict[str, Dict[str, int]] = {
     "free": {"max_checks_per_month": 100, "max_watches": 2, "max_users": 3},
     "pro": {"max_checks_per_month": 2000, "max_watches": 10, "max_users": 10},

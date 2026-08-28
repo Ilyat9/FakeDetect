@@ -98,9 +98,7 @@ async def list_watches(request: Request, active_only: bool = True):
 
 
 def _ensure_tenant_watch(watch: dict, ctx) -> None:
-    """404 (not 403!) to avoid leaking other tenants' watch ids."""
-    if not watch or watch.get("tenant_id") != ctx.tenant_id:
-        raise HTTPException(status_code=404, detail="Watch not found")
+    tenancy.ensure_owned(watch, ctx, label="Watch")
 
 
 @router.get("/watches/{watch_id}")

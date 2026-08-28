@@ -13,6 +13,16 @@
 - Тесты: `tests/test_strict_auth.py` (падение без ключа при `STRICT_AUTH=1`,
   успешный старт с ключом, warning-лог в open mode без `STRICT_AUTH`).
 
+### F-C1 — Изоляция тенантов, defense-in-depth
+- `tenancy.ensure_owned()` (`app/services/tenancy.py`) — единая проверка
+  "сущность принадлежит контексту вызывающего", независимая от `WHERE
+  tenant_id` в SQL. Заменяет три дублирующихся ad-hoc реализации в
+  `cases.py`/`watches.py`/`batch.py`.
+- Новый регресс-сьют `tests/test_tenant_isolation.py`: систематически (по
+  таблице ресурсов) проверяет 404 для case/batch_task/brand_watch/whitelist
+  под чужим tenant'ом и в open mode.
+- Чеклист «как добавить новый tenant-scoped эндпоинт» в `docs/ARCHITECTURE.md`.
+
 ## [3.6.1] — 2026-08-26 — Публичный демо-режим + пост-аудит стыков
 
 ### Demo mode (для портфолио-деплоя)

@@ -76,10 +76,8 @@ async def batch_status(task_id: str, request: Request):
 
     ctx = await tenancy.require_ctx(request, min_role="viewer")
     task = await get_batch_task(task_id)
-    # 404 (not 403!) to avoid leaking other tenants' task ids (same pattern
-    # as cases.py) — uuid4 ids alone are not an authorization boundary.
-    if not task or task.get("tenant_id") != ctx.tenant_id:
-        raise HTTPException(status_code=404, detail="Task not found")
+    # uuid4 ids alone are not an authorization boundary.
+    tenancy.ensure_owned(task, ctx, label="Task")
     return JSONResponse(content={
         "task_id": task["id"],
         "total": task["total"],
@@ -95,8 +93,7 @@ async def batch_download(task_id: str, request: Request):
 
     ctx = await tenancy.require_ctx(request, min_role="viewer")
     task = await get_batch_task(task_id)
-    if not task or task.get("tenant_id") != ctx.tenant_id:
-        raise HTTPException(status_code=404, detail="Task not found")
+    tenancy.ensure_owned(task, ctx, label="Task")
     path = await get_batch_task_result_path(task_id)
     if task["status"] != "completed" or not path or not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Result file not available")
