@@ -553,7 +553,7 @@ async def add_to_whitelist(
             logger.info(f"Added to whitelist #{entry_id}: {seller_name} ({brand})")
             return entry_id
 
-    except Exception as e:
+    except aiosqlite.Error as e:
         logger.error(f"Failed to add to whitelist: {e}")
         return -1
 

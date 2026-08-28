@@ -3,6 +3,9 @@
 import asyncio
 import importlib
 import os
+import uuid
+
+import pytest
 
 from app import database
 from app.database import (
@@ -24,6 +27,18 @@ from app.database import (
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db(tmp_path, monkeypatch):
+    """Give every test in this file its own fresh SQLite DB.
+
+    These tests call app.database functions directly (no `client` fixture),
+    so they were sharing one process-global DB for the whole test session —
+    order-dependent under pytest-randomly (hardcoded ids, un-cleaned rows).
+    """
+    monkeypatch.setattr(database, "DB_PATH", str(tmp_path / "test_fakedetect.db"))
+    _run(init_db())
 
 
 def test_save_check_and_history():
@@ -61,7 +76,7 @@ def test_whitelist_crud_and_lookup():
 
 
 def test_batch_task_lifecycle():
-    task_id = "test-task-lifecycle"
+    task_id = f"test-task-lifecycle-{uuid.uuid4()}"
     _run(create_batch_task(task_id, total=3))
 
     task = _run(get_batch_task(task_id))
