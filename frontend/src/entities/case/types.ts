@@ -14,10 +14,12 @@ export interface TopSeller {
   fakes: number;
 }
 
+/** GET /analytics/revenue — app.database.get_protected_revenue() response shape. */
 export interface RevenueProtected {
-  protected_revenue: number;
-  methodology: string;
-  period_days: number;
+  confirmed_fakes: number;
+  avg_original_price: number | null;
+  protected_revenue_estimate: number | null;
+  disclaimer: string;
 }
 
 export interface TimingMetrics {

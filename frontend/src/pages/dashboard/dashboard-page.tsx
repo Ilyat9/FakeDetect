@@ -45,7 +45,9 @@ export function DashboardPage() {
         <h1 className="font-display text-4xl tracking-wide">Дашборд</h1>
         {/* Block E endpoint: server-rendered PDF export of the dashboard. */}
         <a href={`${API_URL}/analytics/export.pdf`} target="_blank" rel="noopener noreferrer">
-          <Button variant="secondary" size="sm">Экспорт в PDF</Button>
+          <Button variant="secondary" size="sm">
+            Экспорт в PDF
+          </Button>
         </a>
       </div>
 
@@ -58,7 +60,12 @@ export function DashboardPage() {
             error={timeseries.error}
             isEmpty={(timeseries.data?.points.length ?? 0) === 0}
             loadingFallback={<Skeleton className="h-64 w-full" />}
-            emptyFallback={<EmptyState title="Нет данных за период" hint="Запустите первые проверки — график построится автоматически." />}
+            emptyFallback={
+              <EmptyState
+                title="Нет данных за период"
+                hint="Запустите первые проверки — график построится автоматически."
+              />
+            }
             onRetry={() => void timeseries.refetch()}
           >
             <ResponsiveContainer width="100%" height={260}>
@@ -77,8 +84,22 @@ export function DashboardPage() {
                 <XAxis dataKey="date" fontSize={11} />
                 <YAxis allowDecimals={false} fontSize={11} width={32} />
                 <Tooltip />
-                <Area type="monotone" dataKey="total" name="Всего проверок" stroke="#007aff" fill="url(#totalFill)" strokeWidth={2} />
-                <Area type="monotone" dataKey="fakes" name="Подделки" stroke="#ff2d55" fill="url(#fakesFill)" strokeWidth={2} />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  name="Всего проверок"
+                  stroke="#007aff"
+                  fill="url(#totalFill)"
+                  strokeWidth={2}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="fakes"
+                  name="Подделки"
+                  stroke="#ff2d55"
+                  fill="url(#fakesFill)"
+                  strokeWidth={2}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </AsyncBoundary>
@@ -110,13 +131,22 @@ export function DashboardPage() {
 interface KeyMetricsProps {
   loading: boolean;
   error: unknown;
-  revenue?: { protected_revenue: number; methodology: string };
+  revenue?: {
+    confirmed_fakes: number;
+    avg_original_price: number | null;
+    protected_revenue_estimate: number | null;
+    disclaimer: string;
+  };
   detectionHours?: number;
   resolutionHours?: number;
   onRetry: () => void;
 }
 
-function KeyMetricsCard(props: KeyMetricsProps) {
+const REVENUE_FALLBACK_DISCLAIMER =
+  "Оценка, а не точная цифра: подтверждённые подделки × средняя цена оригинала. " +
+  "Не учитывает конверсию и каннибализацию спроса.";
+
+export function KeyMetricsCard(props: KeyMetricsProps) {
   return (
     <Card>
       <CardTitle>Ключевые метрики</CardTitle>
@@ -132,13 +162,18 @@ function KeyMetricsCard(props: KeyMetricsProps) {
         onRetry={props.onRetry}
       >
         <dl className="space-y-4 text-sm">
-          <div title={props.revenue?.methodology}>
-            <dt className="text-xs uppercase tracking-widest text-ink-muted">Защищённая выручка</dt>
+          <div title={props.revenue?.disclaimer}>
+            <dt className="text-xs uppercase tracking-widest text-ink-muted">
+              Оценка защищённой выручки
+              <span aria-hidden className="ml-1 cursor-help text-ink-muted/70">
+                ⓘ
+              </span>
+            </dt>
             <dd className="font-display text-3xl text-verdict-original">
-              {formatCurrency(props.revenue?.protected_revenue)}
+              {formatCurrency(props.revenue?.protected_revenue_estimate)}
             </dd>
             <dd className="mt-0.5 cursor-help text-[11px] text-ink-muted underline decoration-dotted">
-              {props.revenue?.methodology ?? "Оценка предотвращённого ущерба (методология в tooltip)"}
+              {props.revenue?.disclaimer ?? REVENUE_FALLBACK_DISCLAIMER}
             </dd>
           </div>
           <div>
@@ -171,7 +206,12 @@ function TopSellersCard({ sellers, loading, error, onRetry }: TopSellersProps) {
         error={error}
         isEmpty={sellers.length === 0}
         loadingFallback={<Skeleton className="h-48 w-full" />}
-        emptyFallback={<EmptyState title="Нарушителей пока нет" hint="Список заполнится после анализа карточек." />}
+        emptyFallback={
+          <EmptyState
+            title="Нарушителей пока нет"
+            hint="Список заполнится после анализа карточек."
+          />
+        }
         onRetry={onRetry}
       >
         <ResponsiveContainer width="100%" height={Math.max(180, sellers.length * 44)}>
@@ -185,7 +225,10 @@ function TopSellersCard({ sellers, loading, error, onRetry }: TopSellersProps) {
         </ResponsiveContainer>
         <p className="mt-2 text-xs text-ink-muted">
           Детализация по продавцу доступна в{" "}
-          <Link to="/cases" className="text-verdict-info underline">кейсах</Link>.
+          <Link to="/cases" className="text-verdict-info underline">
+            кейсах
+          </Link>
+          .
         </p>
       </AsyncBoundary>
     </Card>

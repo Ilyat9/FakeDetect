@@ -264,6 +264,20 @@ per-key rate limit.
 | `DB_PATH` | Путь к SQLite (в Docker — `/data/fakedetect.db`) |
 | `LOG_FORMAT=json` | Структурные логи для продакшена |
 
+## SLO / нагрузочное тестирование (A-C4)
+
+Измерено локально (Apple M2, 1 uvicorn-воркер, `PROVIDER=mock` — без реальных
+платных вызовов LLM), **не на прод-железе** — полные цифры и методология в
+[docs/LOAD_TEST_RESULTS.md](docs/LOAD_TEST_RESULTS.md).
+
+| Сценарий | p50 | p95 | p99 | Ошибок |
+|---|--:|--:|--:|--:|
+| `/api/v1/analyze`, 20 users, happy path | 32 ms | 250 ms | 650 ms | 0% |
+| `/api/v1/analyze`, провайдер деградирован (гарантированный сбой) | 1800 ms | 4900 ms | 5000 ms | 0% HTTP-ошибок — circuit breaker открылся, запросы ушли в retry-queue вместо 500 |
+
+Прогоняется автоматически на релизный тег / по ночам:
+`.github/workflows/nightly-loadtest.yml` (не блокирует PR).
+
 ## Документация
 
 | Файл | Содержимое |

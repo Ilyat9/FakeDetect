@@ -125,13 +125,22 @@ def build_dashboard_pptx(data: Dict[str, Any]) -> bytes:
         f"Оригиналов: {s.get('originals', 0)}",
     ]
     rev = data.get("protected_revenue", {})
+    revenue_disclaimer = None
     if rev.get("protected_revenue_estimate") is not None:
         est = rev["protected_revenue_estimate"]
         bullets.append(f"Оценка защищённой выручки: {est:,} ₽".replace(",", " "))
+        # E-C4: the estimate must never appear on a slide without its caveat —
+        # a CFO reading only the bullet would otherwise take it as an exact figure.
+        revenue_disclaimer = rev.get("disclaimer")
     for i, b in enumerate(bullets):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.text = b
         p.font.size = Pt(20)
+    if revenue_disclaimer:
+        p = tf.add_paragraph()
+        p.text = f"* {revenue_disclaimer}"
+        p.font.size = Pt(11)
+        p.font.italic = True
 
     sellers = data.get("top_sellers", [])
     if sellers:
