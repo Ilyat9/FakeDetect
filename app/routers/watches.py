@@ -45,11 +45,28 @@ async def create_watch_endpoint(
     marketplaces: str = Form("WB", max_length=200),
     cron_schedule: str = Form("0 7 * * *", max_length=100),
     digest_interval_hours: int = Form(24, ge=1, le=168),
+    digest_email: str = Form(None, max_length=320),
     reference: UploadFile = File(...),
 ):
     """Create a brand watch (admin op; limited by the tariff plan)."""
+    from app.core.config import smtp_configured
+
     ctx = await tenancy.require_ctx(request, min_role="admin")
     await tenancy.ensure_watches_quota(ctx.tenant_id)
+
+    digest_email = (digest_email or "").strip() or None
+    if digest_email:
+        if "@" not in digest_email or " " in digest_email:
+            raise HTTPException(status_code=422, detail="digest_email is not a valid email address")
+        if not smtp_configured():
+            # C-C4: refuse rather than silently accept a setting that will
+            # never actually send anything.
+            raise HTTPException(
+                status_code=400,
+                detail="Email digest requires SMTP to be configured on this instance "
+                       "(SMTP_HOST/SMTP_FROM_EMAIL) — ask your administrator, or leave "
+                       "digest_email empty to use Telegram-only alerts.",
+            )
 
     cron_schedule = _validate_cron(cron_schedule)
     keywords_csv = ",".join(k.strip() for k in keywords.split(",") if k.strip())
@@ -73,6 +90,7 @@ async def create_watch_endpoint(
         digest_interval_hours=digest_interval_hours,
         reference_images_json=json.dumps([base64.b64encode(ref_bytes).decode()]),
         tenant_id=ctx.tenant_id,
+        digest_email=digest_email,
     )
     if watch_id <= 0:
         raise HTTPException(status_code=500, detail="Failed to create watch")

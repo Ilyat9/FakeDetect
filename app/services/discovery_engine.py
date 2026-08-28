@@ -314,11 +314,9 @@ async def _process_listing(
 
 
 async def maybe_send_digest(watch_id: int, brand: str, digest_interval_hours: int) -> bool:
-    """Send a Telegram digest of recent findings if the digest window elapsed.
-
-    Email digest is a stub (logged) until an SMTP provider is configured.
-    """
-    from app.core.config import get_secret
+    """Send Telegram + (if configured) email digests of recent findings once
+    the digest window elapsed."""
+    from app.core.config import get_secret, smtp_configured
     from app.telegram_alerts import send_telegram_alert
 
     findings = await get_recent_findings(watch_id, since_hours=digest_interval_hours)
@@ -360,8 +358,27 @@ async def maybe_send_digest(watch_id: int, brand: str, digest_interval_hours: in
     else:
         logger.info(f"[{brand}] digest (Telegram not configured):\n{text}")
 
-    # Email stub: wire an SMTP client here when a provider is chosen.
-    logger.info(f"[{brand}] email digest stub suppressed ({len(findings)} findings)")
+    digest_email = (watch or {}).get("digest_email")
+    if digest_email:
+        if smtp_configured():
+            from app.email_alerts import render_digest_html, send_digest_email
+
+            html_body = render_digest_html(brand, fakes, suspicious)
+            await send_digest_email(
+                to_email=digest_email,
+                subject=f"FakeDetect: дайджест «{brand}» — "
+                        f"{len(fakes)} подделок, {len(suspicious)} подозрительных",
+                html_body=html_body,
+                text_body=text,
+            )
+        else:
+            # C-C4: this watch has an email digest recipient configured, but
+            # SMTP itself isn't set up in this environment — say so loudly
+            # instead of silently sending nothing (the old stub's behavior).
+            logger.warning(
+                f"[{brand}] watch has digest_email={digest_email} but SMTP_HOST/"
+                f"SMTP_FROM_EMAIL are not configured — email digest NOT sent"
+            )
 
     # Mark the window as served even without Telegram configured, so scans
     # don't re-prepare the same digest every tick.

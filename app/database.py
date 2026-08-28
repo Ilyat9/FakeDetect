@@ -61,6 +61,13 @@ MIGRATIONS: list = [
             "CREATE INDEX IF NOT EXISTS idx_watches_tenant ON brand_watches(tenant_id)",
         ],
     ),
+    (
+        5,
+        "block C: email digest recipient (C-C4)",
+        [
+            "ALTER TABLE brand_watches ADD COLUMN digest_email TEXT",
+        ],
+    ),
 ]
 
 
@@ -1147,6 +1154,7 @@ async def create_brand_watch(
     digest_interval_hours: int,
     reference_images_json: str,
     tenant_id: int = 1,
+    digest_email: Optional[str] = None,
 ) -> int:
     """Create a brand watch. Returns its id (-1 on failure)."""
     try:
@@ -1154,10 +1162,10 @@ async def create_brand_watch(
             cursor = await db.execute(
                 """INSERT INTO brand_watches
                    (brand_name, keywords, marketplaces, cron_schedule,
-                    digest_interval_hours, reference_images, tenant_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    digest_interval_hours, reference_images, tenant_id, digest_email)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (brand_name, keywords_csv, marketplaces_csv, cron_schedule,
-                 digest_interval_hours, reference_images_json, tenant_id),
+                 digest_interval_hours, reference_images_json, tenant_id, digest_email),
             )
             await db.commit()
             row = await db.execute("SELECT last_insert_rowid()")
