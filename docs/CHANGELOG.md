@@ -23,6 +23,76 @@
   под чужим tenant'ом и в open mode.
 - Чеклист «как добавить новый tenant-scoped эндпоинт» в `docs/ARCHITECTURE.md`.
 
+### D-C1 — Момент захвата скриншота evidence-пакета
+- `screenshot_queue` (таблица) + `app/services/screenshot_retry_worker.py`:
+  захват ставится в очередь немедленно в момент анализа (`requested_at`),
+  с exponential backoff при недоступном браузере — вместо захвата «на лету»
+  при генерации PDF (что задним числом подменяло момент захвата).
+- `GET /cases/{id}/evidence-pdf` больше не пытается захватывать скриншот
+  синхронно при запросе PDF; честный статус (`captured` / `captured_late` /
+  `pending` / `unavailable`) считает `evidence_store.get_screenshot_status()`.
+- PDF-манифест показывает «Дата анализа (UTC)» и «Дата захвата скриншота
+  (UTC)» отдельными полями вместо одной смешанной строки «проверено: …».
+- Тесты: `tests/test_evidence_screenshot_timing.py` (happy path — захват
+  промптно при доступном браузере; degraded path — честный pending →
+  unavailable без подмены даты).
+
+### E-C3 — Chart.js/CDN (частично закрыто)
+- Подтверждено: `frontend/` (React + Recharts) не тянет ни одной CDN-зависимости
+  (ни JS-библиотек, ни шрифтов) и уже защищён строгим `default-src 'self'` CSP
+  в `frontend/nginx.conf`.
+- Оставлено открытым: `legacy/index.html` (Chart.js + Google Fonts с CDN,
+  всё ещё отдаётся FastAPI на `/`) — по решению владельца продукта `legacy/`
+  считается замороженным, полноценное закрытие пункта требует отдельного
+  решения о его судьбе, вне рамок этой задачи.
+
+### A-C4 — SLO измерены, не только заявлены
+- `app/llm_provider.py`: новый `MockProvider` (`PROVIDER=mock`) — детерминированный
+  ответ без сети/платы, для локальных нагрузочных прогонов и демо без ключей.
+  `app/core/config.py`: `mock_provider_delay_seconds` / `mock_provider_failure_rate`
+  позволяют симулировать деградированного провайдера.
+- `docs/LOAD_TEST_RESULTS.md`: реальные измеренные p50/p95/p99 (Apple M2,
+  локально, `PROVIDER=mock`, БЕЗ платных вызовов LLM — честно помечено как
+  НЕ прод-железо) для happy path и для сценария с гарантированно падающим
+  провайдером (подтверждён circuit breaker `open` + retry-queue вместо 500).
+- README: новый раздел «SLO / нагрузочное тестирование» с этими цифрами
+  (раньше в README вообще не было заявленных числовых целей — только
+  упоминание каталога `loadtests/` в дереве проекта).
+- `.github/workflows/nightly-loadtest.yml`: happy-path сценарий прогоняется
+  по ночам и на релизные теги (не блокирует PR).
+- Тесты: `tests/test_mock_provider.py`.
+
+### C-C4 — Email-дайджест: реальная отправка вместо лог-заглушки
+- `app/email_alerts.py`: SMTP-агностичная отправка (stdlib `smtplib`,
+  настройка через `SMTP_HOST/PORT/USER/PASSWORD/FROM_EMAIL/USE_TLS`) — любой
+  SMTP-провайдер, без привязки к конкретному вендору.
+- `app/templates/emails/digest.html.j2`: HTML-шаблон дайджеста (Jinja2, тот
+  же паттерн, что и `app/templates/complaints/`).
+- Отправка встроена в существующий тик discovery-планировщика
+  (`maybe_send_digest`, вызывается из уже работающего APScheduler-джоба
+  сканирования watch'ей — отдельный джоб не понадобился).
+- Новая колонка `brand_watches.digest_email` (миграция #5) + поле формы
+  `POST /watches`. Если задан `digest_email`, а SMTP не настроен — 400 с
+  понятным сообщением при создании watch (не тихое принятие настройки).
+- Если `digest_email` задан, а SMTP отвалился/не настроен к моменту тика —
+  `logger.warning(...)` вместо молчаливого пропуска.
+- Тесты: `tests/test_email_digest.py`.
+
+### E-C4 — «Защищённая выручка»: disclaimer видим в UI, не только в доке
+- **Fix**: React-дашборд (`frontend/src/entities/case/types.ts`,
+  `pages/dashboard/dashboard-page.tsx`) использовал несуществующие поля
+  `protected_revenue`/`methodology` вместо реальных `protected_revenue_estimate`/
+  `disclaimer`, которые отдаёт `GET /analytics/revenue` — из-за этого цифра
+  всегда была пустой, а вместо реального disclaimer показывался общий
+  фолбэк-текст. Поля синхронизированы с бэкендом.
+- Виджет переименован в «Оценка защищённой выручки» (ⓘ рядом с заголовком),
+  реальный disclaimer теперь всегда виден под цифрой, не только в hover-title.
+- `app/services/dashboard_export.py`: PPTX-экспорт теперь включает disclaimer
+  рядом с булитом оценки (раньше — голая цифра без оговорки). PDF-экспорт уже
+  содержал disclaimer корректно.
+- Тесты: `frontend/src/pages/dashboard/dashboard-page.test.tsx`,
+  `tests/test_dashboard_export_disclaimer.py`.
+
 ## [3.6.1] — 2026-08-26 — Публичный демо-режим + пост-аудит стыков
 
 ### Demo mode (для портфолио-деплоя)
