@@ -1552,6 +1552,8 @@ export interface components {
              * @default 24
              */
             digest_interval_hours: number;
+            /** Digest Email */
+            digest_email?: string;
             /** Reference */
             reference: string;
         };
@@ -1576,6 +1578,8 @@ export interface components {
              * @default 24
              */
             digest_interval_hours: number;
+            /** Digest Email */
+            digest_email?: string;
             /** Reference */
             reference: string;
         };
