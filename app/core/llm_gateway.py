@@ -98,9 +98,16 @@ def reset_resilience_state() -> None:
 
 
 def configured_providers(preferred: Optional[str] = None) -> List[str]:
-    """Providers ordered by preference, filtered to those having API keys."""
-    order = [(preferred or settings.provider).strip().lower()]
-    order += [p.value for p in ProviderType]
+    """Providers ordered by preference, filtered to those having API keys.
+
+    ``mock`` (A-C4, load-test-only provider) is never added as an automatic
+    failover/consensus candidate — it only appears here when explicitly
+    requested as ``preferred`` (i.e. PROVIDER=mock).
+    """
+    explicit = (preferred or settings.provider).strip().lower()
+    order = [explicit] + [
+        p.value for p in ProviderType if p != ProviderType.MOCK
+    ]
     seen: List[str] = []
     for name in order:
         if name in seen:

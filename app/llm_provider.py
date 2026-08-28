@@ -8,6 +8,7 @@ from enum import Enum
 class ProviderType(str, Enum):
     GEMINI = "gemini"
     GROK = "grok"
+    MOCK = "mock"   # A-C4: deterministic, no-network provider for local load tests
 
 
 # Block A.8: every verdict stored in DB references the exact prompt version
@@ -207,8 +208,50 @@ class GrokProvider(VisionProvider):
         image.save(buffer, format="JPEG")
         return base64.b64encode(buffer.getvalue()).decode()
 
+class MockProvider(VisionProvider):
+    """No-network provider for load tests (loadtests/locustfile.py, A-C4).
+
+    Never calls a real LLM API — configurable artificial latency/failure rate
+    let a load test exercise app-level overhead and circuit-breaker behavior
+    without incurring any provider cost.
+    """
+
+    def __init__(self, delay_seconds: float = 0.0, failure_rate: float = 0.0):
+        self.delay_seconds = delay_seconds
+        self.failure_rate = failure_rate
+
+    async def ping(self) -> bool:
+        return True
+
+    async def analyze(self, original_bytes: bytes, suspect_bytes: bytes, meta: Dict[str, Any]) -> Dict[str, Any]:
+        import asyncio
+        import random
+
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
+        if self.failure_rate and random.random() < self.failure_rate:
+            raise RuntimeError("MockProvider: simulated provider failure")
+        return {
+            "verdict": "ПОДОЗРИТЕЛЬНО",
+            "confidence": 60,
+            "summary": "mock provider response (load test)",
+            "risk_level": "medium",
+            "indicators": [
+                {"factor": "mock", "score": 5, "status": "warn", "detail": "load-test stub"},
+            ],
+            "recommendation": "n/a — mock provider",
+        }
+
+
 def create_provider(provider_name: str, api_key: str) -> VisionProvider:
     provider_type = ProviderType(provider_name.lower())
+    if provider_type == ProviderType.MOCK:
+        from app.core.config import settings
+
+        return MockProvider(
+            delay_seconds=settings.mock_provider_delay_seconds,
+            failure_rate=settings.mock_provider_failure_rate,
+        )
     if provider_type == ProviderType.GROK:
         return GrokProvider(api_key)
     else:

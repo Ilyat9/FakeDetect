@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     grok_api_key: Optional[SecretStr] = None
     telegram_bot_token: Optional[SecretStr] = None
     telegram_chat_id: Optional[str] = None
+    # C-C4: email digest — plain SMTP, provider-agnostic (any SMTP host works).
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[SecretStr] = None
+    smtp_from_email: Optional[str] = None
+    smtp_use_tls: bool = True
     # Comma-separated list of allowed CORS origins; empty = same-origin only.
     allowed_origins: str = ""
     # If set, protected endpoints require the X-API-Key header.
@@ -99,6 +106,11 @@ class Settings(BaseSettings):
     ip_rate_limit_analyze_per_min: int = 6    # expensive endpoint per-IP budget
     demo_max_checks_per_month: int = 200      # hard cost cap for the demo tenant
 
+    # --- Load testing (A-C4) -----------------------------------------------------
+    # PROVIDER=mock uses MockProvider (no network calls) — for loadtests/locustfile.py.
+    mock_provider_delay_seconds: float = 0.0
+    mock_provider_failure_rate: float = 0.0   # 0..1 — simulates a degraded provider
+
     def composite_weights(self) -> Dict[str, float]:
         return {
             "w_llm_confidence": self.w_llm_confidence,
@@ -129,8 +141,15 @@ def get_secret(secret: Optional[SecretStr]) -> Optional[str]:
     return secret.get_secret_value() if secret else None
 
 
+def smtp_configured() -> bool:
+    """C-C4: minimum viable SMTP config — host + a from-address."""
+    return bool(settings.smtp_host and settings.smtp_from_email)
+
+
 def get_api_key_for_provider(provider_name: str) -> Optional[str]:
     """Single source of truth for provider -> API key resolution."""
+    if provider_name == ProviderType.MOCK:
+        return "mock"  # MockProvider makes no network calls; no real key needed.
     if provider_name == ProviderType.GROK:
         return get_secret(settings.grok_api_key)
     return get_secret(settings.gemini_api_key)
